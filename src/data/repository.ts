@@ -7,7 +7,9 @@ import type {
   CaseStudy,
   Company,
   CompanyDeletePreview,
+  CompanyProfile,
   CreateCompanyInput,
+  CreateProfileInput,
   CurrentUser,
   DiagnosisSnapshot,
   Handoff,
@@ -43,6 +45,12 @@ export interface Repository {
   findSimilarCompanies(user: CurrentUser, name: string, phone: string): Promise<Company[]>
   /** 마스터 전용 — 담당 재배정 (작성자는 유지) */
   assignCompany(user: CurrentUser, companyId: string, profileId: string | null): Promise<Company>
+
+  /* 회사 프로필 — PDF·음성·수동 입력에서 구조화한 스냅샷 (이력). 원본 PDF 는 저장하지 않는다 */
+  listProfiles(user: CurrentUser, companyId: string): Promise<CompanyProfile[]>
+  createProfile(user: CurrentUser, input: CreateProfileInput): Promise<CompanyProfile>
+  /** 잘못 추출된 값 제외/수정 — 행을 지우지 않고 facts·evidence 만 고친다 */
+  updateProfile(user: CurrentUser, profileId: string, patch: { facts: CompanyProfile['facts']; evidence: CompanyProfile['evidence'] }): Promise<CompanyProfile>
 
   /* 미팅 */
   listMeetings(user: CurrentUser, companyId?: string): Promise<Meeting[]>

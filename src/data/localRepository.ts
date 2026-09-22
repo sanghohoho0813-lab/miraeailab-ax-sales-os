@@ -13,7 +13,9 @@ import type {
   CaseStudy,
   Company,
   CompanyDeletePreview,
+  CompanyProfile,
   CreateCompanyInput,
+  CreateProfileInput,
   CurrentUser,
   DiagnosisSnapshot,
   Handoff,
@@ -25,6 +27,7 @@ import type {
 } from '../types/domain'
 import type { HandoffSubmitResult, Repository } from './repository'
 import { newId, nowIso, normalizePhone } from '../lib/util'
+import { assertNoResidentNumber } from '../engine/docParser/pii'
 
 const KEYS = {
   companies: 'axpartner.companies',
@@ -36,6 +39,7 @@ const KEYS = {
   customerEvents: 'axpartner.customer_events',
   diagnosisFixtures: 'axpartner.diagnosis_fixtures',
   audit: 'axpartner.audit_events',
+  profiles: 'axpartner.company_profiles',
 } as const
 
 type LocalCustomerEvent = { id: string; dedupeKey: string; payload: Record<string, unknown>; createdAt: string; status?: 'new' | 'linked' | 'in_progress' | 'resolved' | 'ignored' }
@@ -43,6 +47,8 @@ type LocalCustomerEvent = { id: string; dedupeKey: string; payload: Record<strin
 const DEFAULT_MEMBERS: PartnerMember[] = [
   { profileId: 'local-master', email: 'sanghohoho0813@gmail.com', displayName: '김상호', title: '대표', role: 'master', active: true, createdAt: '2026-09-01T00:00:00.000Z' },
   { profileId: 'local-partner', email: 'partner@example.com', displayName: '곽주환', title: '팀장', role: 'partner', active: true, createdAt: '2026-09-01T00:00:00.000Z' },
+  // 두 번째 파트너 — 권한 격리 시연·E2E (다른 파트너의 고객이 보이지 않아야 한다)
+  { profileId: 'local-partner2', email: 'partner2@example.com', displayName: '이수진', title: '팀장', role: 'partner', active: true, createdAt: '2026-09-02T00:00:00.000Z' },
 ]
 
 /** local 모드 프로필 원천 — 마스터가 이름·호칭을 바꾸면 새로고침 후 인사말에 반영된다 (supabase 의 partner_current_profile 과 같은 역할) */
@@ -99,6 +105,9 @@ export class LocalRepository implements Repository {
   private handoffs(): Handoff[] {
     return read<Handoff[]>(KEYS.handoffs, [])
   }
+  private profiles(): CompanyProfile[] {
+    return read<CompanyProfile[]>(KEYS.profiles, [])
+  }
 
   private canManage(user: CurrentUser, c: Company): boolean {
     return isMaster(user) || c.consultantId === user.id || c.assignedTo === user.id
@@ -141,6 +150,7 @@ export class LocalRepository implements Repository {
       diagnosis: null,
       memo: input.memo?.trim() ?? '',
       pinnedCaseIds: [],
+      fieldSources: input.fieldSources ?? {},
       archivedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -211,6 +221,7 @@ export class LocalRepository implements Repository {
     write(KEYS.companies, this.companies().filter((x) => x.id !== id))
     write(KEYS.meetings, this.meetings().filter((m) => m.companyId !== id))
     write(KEYS.handoffs, this.handoffs().filter((h) => h.companyId !== id))
+    write(KEYS.profiles, this.profiles().filter((p) => p.companyId !== id))
     write(KEYS.events, read<UsageEvent[]>(KEYS.events, []).filter((e) => !e.meetingId || !meetingIds.has(e.meetingId)))
     this.audit(user, 'company_deleted', 'company', id, { ...prev })
   }
@@ -228,6 +239,36 @@ export class LocalRepository implements Repository {
     const next = { ...c, assignedTo: profileId, updatedAt: nowIso() }
     write(KEYS.companies, this.companies().map((x) => (x.id === companyId ? next : x)))
     this.audit(user, 'company_reassigned', 'company', companyId, { from: c.assignedTo ?? c.consultantId, to: profileId, name: c.name })
+    return next
+  }
+
+  /* ---- 회사 프로필 (DB 0006 partner_company_profiles 와 같은 규칙: 담당자만, 주민번호 거부, 직접 삭제 없음) ---- */
+  async listProfiles(user: CurrentUser, companyId: string): Promise<CompanyProfile[]> {
+    const c = await this.getCompany(user, companyId)
+    if (!c) return []
+    return this.profiles()
+      .filter((p) => p.companyId === companyId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  }
+  async createProfile(user: CurrentUser, input: CreateProfileInput): Promise<CompanyProfile> {
+    const c = await this.getCompany(user, input.companyId)
+    if (!c) throw new Error('이 고객에 자료를 추가할 권한이 없습니다.')
+    if (input.sourceType === 'pdf' && !input.sourceHash) throw new Error('PDF 프로필에는 파일 해시가 필요합니다.')
+    assertNoResidentNumber(JSON.stringify({ facts: input.facts, evidence: input.evidence }))
+    const p: CompanyProfile = { id: newId(), ...input, createdBy: user.id, createdAt: nowIso() }
+    write(KEYS.profiles, [p, ...this.profiles()])
+    this.audit(user, 'profile_added', 'company', input.companyId, { profileId: p.id, sourceType: p.sourceType, sourceName: p.sourceName, pageCount: p.pageCount })
+    return p
+  }
+  async updateProfile(user: CurrentUser, profileId: string, patch: { facts: CompanyProfile['facts']; evidence: CompanyProfile['evidence'] }): Promise<CompanyProfile> {
+    const p = this.profiles().find((x) => x.id === profileId)
+    if (!p) throw new Error('자료를 찾을 수 없습니다.')
+    const c = await this.getCompany(user, p.companyId)
+    if (!c) throw new Error('이 자료를 수정할 권한이 없습니다.')
+    assertNoResidentNumber(JSON.stringify(patch))
+    const next: CompanyProfile = { ...p, facts: patch.facts, evidence: patch.evidence }
+    write(KEYS.profiles, this.profiles().map((x) => (x.id === profileId ? next : x)))
+    this.audit(user, 'profile_corrected', 'company', p.companyId, { profileId })
     return next
   }
 

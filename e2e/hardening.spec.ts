@@ -143,13 +143,13 @@ test.describe('운영 안정화', () => {
   test('중복 등록 안내 — 같은 회사명이면 먼저 알려 주고, 그래도 등록할 수 있다', async ({ page }) => {
     await loginPartner(page)
     await prepareCompany(page, '중복테스트')
-    await page.goto('/companies/new')
+    await page.goto('/companies/new/quick')
     await page.getByTestId('company-name').fill('중복테스트')
     await page.getByTestId('prep-next').click()
     await expect(page.getByTestId('dup-sheet')).toBeVisible()
     await expect(page.getByTestId('open-existing')).toBeVisible()
     await page.getByTestId('register-anyway').click()
-    await expect(page.getByTestId('prep-progress')).toHaveText(/2 \/ 4/)
+    await expect(page.getByTestId('prep-progress')).toHaveText(/2 \/ 3/)
   })
 
   test('LIVE 오프라인 안전 — 끊긴 채 답해도 기기에 임시 저장, 복구되면 자동 동기화, 새로고침 후 답변 유지', async ({ page, context }) => {

@@ -1,22 +1,30 @@
 /**
- * BEFORE — 미팅 준비 4단계: 회사 → 기본구조 → 관심사 → 준비완료. 입력은 회사명 하나, 나머지는 클릭.
- * 저장 시 홈페이지 3분 AX Fit 사전진단(회사명 + 연락처 일치)을 찾아 붙이고, 바로 미팅 전략 화면으로 간다.
+ * 30초 빠른 등록 (3단계) + 고객 정보 수정.
+ *   STEP 1 회사명(필수) · 대표자(텍스트/음성) · 연락처(입력/음성/나중에/모름)
+ *   STEP 2 업종 · 인원 · 거래형태 (클릭)
+ *   STEP 3 관심사 (클릭) · 미팅 일시 (지금/오늘/내일 Quick) → 저장하면 전략이 자동으로 만들어진다.
+ * 선택 항목은 [지우기] 로 비울 수 있고, 선택형은 "잘 모르겠음" 으로 되돌릴 수 있다. null/unknown 은 정상 상태다.
+ * 음성 초안은 확인 뒤에만 폼에 들어오고, DB 저장은 [저장] 에서만.
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Mic, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Company, Headcount, Industry, Interest, TradeType } from '../types/domain'
+import type { Company, FieldSources, Headcount, Industry, Interest, ProfileSource, TradeType } from '../types/domain'
 import { Button, ChoiceGrid, Field, Sheet, TextArea, TextInput, useToast, SkeletonList } from '../components/ui'
 import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_LABEL, INTEREST_ORDER, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
-import { formatDate, isoToLocalInput, localInputToIso } from '../lib/util'
+import { MeetingTimePicker, meetingTimeFromIso, resolveMeetingTime, type MeetingTimeValue } from '../components/MeetingTimePicker'
+import { VoiceButton, VoiceIntakeSheet, speechSupported, type VoiceApply } from '../components/VoiceIntake'
+import { normalizePhoneText } from '../engine/docParser/korean'
+import { formatDate } from '../lib/util'
 
 const STEPS = [
-  { key: 'company', label: '회사', title: '어느 회사를 만나시나요?', sub: '회사명만 정확하면 됩니다. 연락처는 홈페이지 3분 AX Fit 사전진단을 찾는 데만 씁니다.' },
+  { key: 'company', label: '회사', title: '어느 회사를 만나시나요?', sub: '회사명만 정확하면 됩니다. 대표자·연락처는 나중에 넣어도 됩니다.' },
   { key: 'structure', label: '기본 구조', title: '회사의 기본 구조를 골라 주세요', sub: '모르면 "잘 모르겠음". 미팅에서 확인하면 됩니다.' },
-  { key: 'interest', label: '관심사', title: '대표님이 지금 관심 있는 것은?', sub: '여러 개 골라도 됩니다. 정책자금 관심은 여기서만 표시하고, 미팅에서 먼저 꺼내지 않습니다.' },
-  { key: 'ready', label: '준비 완료', title: '이대로 미팅 전략을 만들까요?', sub: '저장하면 오늘 공략 포인트 · 추천 사례 · 질문이 바로 만들어집니다.' },
+  { key: 'interest', label: '관심사 · 일시', title: '대표님의 관심사와 미팅 시각', sub: '저장하면 오늘의 접근 전략 · 실제 사례 · 질문 · 멘트가 바로 만들어집니다.' },
 ] as const
+
+type PhoneMode = 'input' | 'later' | 'unknown'
 
 export default function CompanyNewPage() {
   const { user, repo } = useSession()
@@ -36,15 +44,20 @@ export default function CompanyNewPage() {
   const [interests, setInterests] = useState<Interest[]>([])
   const [representativeName, setRep] = useState('')
   const [phone, setPhone] = useState('')
-  const [meetingAt, setMeetingAt] = useState('')
+  const [phoneMode, setPhoneMode] = useState<PhoneMode>('input')
+  const [meetingTime, setMeetingTime] = useState<MeetingTimeValue>({ mode: 'now' })
   const [memo, setMemo] = useState('')
+  const [sources, setSources] = useState<FieldSources>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [similar, setSimilar] = useState<Company[] | null>(null)
   const [dupChecked, setDupChecked] = useState('')
+  const [voiceOpen, setVoiceOpen] = useState(false)
+
+  const mark = (key: keyof FieldSources, src: ProfileSource = user.role === 'master' && editing ? 'master_edit' : 'manual') => setSources((s) => ({ ...s, [key]: src }))
 
   useEffect(() => {
-    document.title = `${editing ? '고객 정보 수정' : '미팅 준비'} · AX Partner OS`
+    document.title = `${editing ? '고객 정보 수정' : '30초 빠른 등록'} · AX Partner OS`
     if (!companyId) return
     let alive = true
     repo.getCompany(user, companyId).then((c) => {
@@ -58,8 +71,10 @@ export default function CompanyNewPage() {
       setInterests(c.interests)
       setRep(c.representativeName)
       setPhone(c.phone)
-      setMeetingAt(isoToLocalInput(c.meetingAt))
+      setPhoneMode(c.phone ? 'input' : 'later')
+      setMeetingTime(meetingTimeFromIso(c.meetingAt))
       setMemo(c.memo)
+      setSources(c.fieldSources ?? {})
       setLoaded(true)
     })
     return () => {
@@ -72,6 +87,7 @@ export default function CompanyNewPage() {
   }, [step])
 
   const toggleInterest = (v: Interest) => {
+    mark('interests')
     setInterests((cur) => {
       if (v === 'unknown') return cur.includes('unknown') ? [] : ['unknown']
       const next = cur.filter((x) => x !== 'unknown')
@@ -92,13 +108,14 @@ export default function CompanyNewPage() {
   function next() {
     if (stepError) return setError(stepError)
     setError('')
-    // 1단계 → 2단계: 비슷한 고객이 이미 있으면 먼저 알려 준다 (막지는 않는다)
     const key = `${name.trim()}|${phone.trim()}`
     if (step === 0 && !editing && dupChecked !== key) {
       void repo.findSimilarCompanies(user, name, phone).then((list) => {
         setDupChecked(key)
-        if (list.length > 0) setSimilar(list)
-        else setStep(1)
+        if (list.length > 0) {
+          setSimilar(list)
+          void repo.track(user, 'company_duplicate_detected', null, { count: list.length, from: 'quick' })
+        } else setStep(1)
       })
       return
     }
@@ -109,6 +126,43 @@ export default function CompanyNewPage() {
     setStep((s) => Math.max(0, s - 1))
   }
 
+  function applyVoice(v: VoiceApply) {
+    if (v.companyName) {
+      setName(v.companyName)
+      mark('name', 'voice')
+    }
+    if (v.representativeName) {
+      setRep(v.representativeName)
+      mark('representativeName', 'voice')
+    }
+    if (v.phone) {
+      setPhone(v.phone)
+      setPhoneMode('input')
+      mark('phone', 'voice')
+    }
+    if (v.headcount) {
+      setHeadcount(v.headcount)
+      mark('headcount', 'voice')
+    }
+    if (v.industry) {
+      setIndustry(v.industry)
+      mark('industry', 'voice')
+    }
+    if (v.tradeType) {
+      setTradeType(v.tradeType)
+      mark('tradeType', 'voice')
+    }
+    if (v.meetingAt) {
+      setMeetingTime({ mode: 'custom', iso: v.meetingAt })
+      mark('meetingAt', 'voice')
+    }
+    if (v.interests?.length) {
+      setInterests(v.interests)
+      mark('interests', 'voice')
+    }
+    toast.show('음성 초안을 폼에 채웠습니다. 확인 후 다음으로 넘어가세요.', 'ok')
+  }
+
   async function submit(e?: FormEvent) {
     e?.preventDefault()
     if (busy) return
@@ -117,6 +171,10 @@ export default function CompanyNewPage() {
     setError('')
     setBusy(true)
     try {
+      const meetingAt = resolveMeetingTime(meetingTime)
+      const fieldSources: FieldSources = { ...sources }
+      if (!fieldSources.name) fieldSources.name = 'manual'
+      if (meetingAt && !fieldSources.meetingAt) fieldSources.meetingAt = 'manual'
       const input = {
         name: name.trim(),
         industry,
@@ -124,10 +182,11 @@ export default function CompanyNewPage() {
         headcount,
         tradeType,
         interests: interests.length ? interests : (['unknown'] as Interest[]),
-        representativeName,
-        phone,
-        meetingAt: localInputToIso(meetingAt),
+        representativeName: representativeName.trim(),
+        phone: phoneMode === 'input' ? phone.trim() : '',
+        meetingAt,
         memo,
+        fieldSources,
       }
       let company: Company
       if (existing) {
@@ -139,7 +198,7 @@ export default function CompanyNewPage() {
         try {
           const diag = await repo.lookupDiagnosis(user, company.name, company.phone)
           if (diag) {
-            company = await repo.updateCompany(user, { ...company, diagnosis: diag })
+            company = await repo.updateCompany(user, { ...company, diagnosis: diag, fieldSources: { ...company.fieldSources, interests: company.fieldSources?.interests ?? 'website_diagnosis' } })
             toast.show('홈페이지 3분 AX Fit 사전진단을 찾아 연결했습니다.', 'ok')
           }
         } catch {
@@ -157,6 +216,11 @@ export default function CompanyNewPage() {
   if (!loaded) return <SkeletonList rows={2} />
   const cur = STEPS[step]
   const last = step === STEPS.length - 1
+  const clearBtn = (onClick: () => void, testId: string) => (
+    <button type="button" onClick={onClick} className="tap inline-flex items-center gap-1 rounded-(--radius-control) px-2 t-sub font-semibold text-ink-500 hover:text-danger-700" data-testid={testId}>
+      <X aria-hidden="true" className="size-4" /> 지우기
+    </button>
+  )
 
   return (
     <form
@@ -167,19 +231,18 @@ export default function CompanyNewPage() {
           next()
         }
       }}
-      className="mx-auto max-w-[760px]"
+      className="mx-auto max-w-[760px] pb-28 sm:pb-0"
     >
-      {/* 진행 */}
       <div className="mb-6">
         <div className="flex items-center justify-between gap-3">
-          <Link to={editing ? `/companies/${companyId}` : '/'} className="t-sub inline-flex items-center gap-1 text-ink-500 hover:text-ink-900">
-            <ArrowLeft aria-hidden="true" className="size-4" /> {editing ? '미팅 전략으로' : '홈으로'}
+          <Link to={editing ? `/companies/${companyId}` : '/companies/new'} className="t-sub inline-flex items-center gap-1 text-ink-500 hover:text-ink-900">
+            <ArrowLeft aria-hidden="true" className="size-4" /> {editing ? '미팅 전략으로' : '가져오기 방법'}
           </Link>
           <span className="tnum t-sub font-bold text-ink-700" data-testid="prep-progress">
             {step + 1} / {STEPS.length}
           </span>
         </div>
-        <ol className="mt-3 grid grid-cols-4 gap-1.5" aria-label="준비 단계">
+        <ol className="mt-3 grid grid-cols-3 gap-1.5" aria-label="준비 단계">
           {STEPS.map((s, i) => (
             <li key={s.key} className="min-w-0">
               <div className={`h-1.5 rounded-full transition-colors duration-200 ${i <= step ? 'bg-accent-600' : 'bg-line'}`} aria-hidden="true" />
@@ -193,23 +256,78 @@ export default function CompanyNewPage() {
       </div>
 
       <div key={cur.key} className="reveal">
-        <h1 className="t-page">{cur.title}</h1>
-        <p className="t-body mt-2 text-ink-500">{cur.sub}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="t-page">{cur.title}</h1>
+            <p className="t-body mt-2 text-ink-500">{cur.sub}</p>
+          </div>
+          {!editing && step === 0 && speechSupported() && (
+            <Button onClick={() => setVoiceOpen(true)} data-testid="voice-all" className="w-full sm:w-auto">
+              <Mic aria-hidden="true" className="size-5" /> 음성으로 한 번에 입력
+            </Button>
+          )}
+        </div>
 
         {step === 0 && (
           <div className="mt-6 space-y-5">
             <Field label="회사명">
-              <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="예: ABC산업" autoFocus required data-testid="company-name" className="text-[1.2rem]" />
+              <div className="flex gap-2">
+                <TextInput value={name} onChange={(e) => {
+                  setName(e.target.value)
+                  mark('name')
+                }} placeholder="예: ABC산업" autoFocus required data-testid="company-name" className="text-[1.2rem]" />
+                <VoiceButton label="회사명 말하기" onText={(t) => {
+                  setName(t.replace(/\s/g, '').replace(/(주식회사|㈜)/g, ''))
+                  mark('name', 'voice')
+                }} testId="voice-name" />
+              </div>
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="대표자 이름" optional>
-                <TextInput value={representativeName} onChange={(e) => setRep(e.target.value)} autoComplete="off" />
+                <div className="flex gap-2">
+                  <TextInput value={representativeName} onChange={(e) => {
+                    setRep(e.target.value)
+                    mark('representativeName')
+                  }} autoComplete="off" data-testid="company-rep" />
+                  <VoiceButton label="대표자 말하기" onText={(t) => {
+                    const m = t.match(/([가-힣]{2,4})\s*(?:대표|사장|원장)?/)
+                    setRep(m ? m[1] : t.trim())
+                    mark('representativeName', 'voice')
+                  }} testId="voice-rep" />
+                </div>
+                {representativeName && clearBtn(() => setRep(''), 'clear-rep')}
               </Field>
               <Field label="대표 연락처" optional hint="홈페이지 3분 AX Fit 을 한 대표라면 같은 번호로 사전진단이 연결됩니다.">
-                <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="010-0000-0000" data-testid="company-phone" />
-              </Field>
-              <Field label="미팅 일시" optional hint="넣으면 홈 · 미팅 목록에 오늘/예정으로 올라옵니다.">
-                <TextInput type="datetime-local" value={meetingAt} onChange={(e) => setMeetingAt(e.target.value)} data-testid="company-meeting-at" />
+                {phoneMode === 'input' ? (
+                  <div className="flex gap-2">
+                    <TextInput value={phone} onChange={(e) => {
+                      setPhone(e.target.value)
+                      mark('phone')
+                    }} inputMode="tel" placeholder="010-0000-0000" data-testid="company-phone" />
+                    <VoiceButton label="연락처 말하기" onText={(t) => {
+                      const p = normalizePhoneText(t)
+                      if (p) {
+                        setPhone(p)
+                        mark('phone', 'voice')
+                      } else toast.show('번호를 알아듣지 못했습니다. 다시 말하거나 직접 입력해 주세요.', 'danger')
+                    }} testId="voice-phone" />
+                  </div>
+                ) : (
+                  <p className="tap flex items-center rounded-(--radius-control) border border-dashed border-line-strong px-4 t-sub text-ink-500" data-testid="phone-skipped">
+                    {phoneMode === 'later' ? '나중에 입력' : '연락처 모름'} — 미팅 준비는 그대로 진행됩니다
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(['input', 'later', 'unknown'] as PhoneMode[]).map((m) => (
+                    <button key={m} type="button" onClick={() => {
+                      setPhoneMode(m)
+                      if (m !== 'input') setPhone('')
+                    }} aria-pressed={phoneMode === m} data-testid={`phone-mode-${m}`} className={`tap rounded-full border px-3 t-meta font-bold ${phoneMode === m ? 'border-accent-600 bg-accent-50 text-ink-900' : 'border-line bg-white text-ink-500'}`}>
+                      {m === 'input' ? '연락처 입력' : m === 'later' ? '나중에' : '모름'}
+                    </button>
+                  ))}
+                  {phoneMode === 'input' && phone && clearBtn(() => setPhone(''), 'clear-phone')}
+                </div>
               </Field>
             </div>
           </div>
@@ -219,7 +337,10 @@ export default function CompanyNewPage() {
           <div className="mt-6 space-y-7">
             <div>
               <p className="t-section mb-2.5">업종</p>
-              <ChoiceGrid columns={3} ariaLabel="업종" options={INDUSTRY_ORDER.map((v) => ({ value: v, label: INDUSTRY_LABEL[v] }))} value={industry} onChange={setIndustry} />
+              <ChoiceGrid columns={3} ariaLabel="업종" options={INDUSTRY_ORDER.map((v) => ({ value: v, label: INDUSTRY_LABEL[v] }))} value={industry} onChange={(v) => {
+                setIndustry(v)
+                mark('industry')
+              }} />
               {industry === 'other' && (
                 <div className="mt-3">
                   <TextInput value={industryNote} onChange={(e) => setIndustryNote(e.target.value)} placeholder="업종을 한 줄로 (선택)" aria-label="업종 메모" />
@@ -228,54 +349,62 @@ export default function CompanyNewPage() {
             </div>
             <div>
               <p className="t-section mb-2.5">인원</p>
-              <ChoiceGrid columns={3} ariaLabel="인원" options={HEADCOUNT_ORDER.map((v) => ({ value: v, label: HEADCOUNT_LABEL[v] }))} value={headcount} onChange={setHeadcount} />
+              <ChoiceGrid columns={3} ariaLabel="인원" options={HEADCOUNT_ORDER.map((v) => ({ value: v, label: HEADCOUNT_LABEL[v] }))} value={headcount} onChange={(v) => {
+                setHeadcount(v)
+                mark('headcount')
+              }} />
             </div>
             <div>
               <p className="t-section mb-2.5">거래형태</p>
-              <ChoiceGrid columns={2} ariaLabel="거래형태" options={TRADE_ORDER.map((v) => ({ value: v, label: TRADE_LABEL[v] }))} value={tradeType} onChange={setTradeType} />
+              <ChoiceGrid columns={2} ariaLabel="거래형태" options={TRADE_ORDER.map((v) => ({ value: v, label: TRADE_LABEL[v] }))} value={tradeType} onChange={(v) => {
+                setTradeType(v)
+                mark('tradeType')
+              }} />
             </div>
           </div>
         )}
 
         {step === 2 && (
-          <div className="mt-6 space-y-6">
-            <ChoiceGrid columns={3} multi ariaLabel="대표 관심사" options={INTEREST_ORDER.map((v) => ({ value: v, label: INTEREST_LABEL[v] }))} value={interests} onChange={toggleInterest} />
+          <div className="mt-6 space-y-7">
+            <div>
+              <p className="t-section mb-2.5">대표 관심사</p>
+              <ChoiceGrid columns={3} multi ariaLabel="대표 관심사" options={INTEREST_ORDER.map((v) => ({ value: v, label: INTEREST_LABEL[v] }))} value={interests} onChange={toggleInterest} />
+              <p className="t-meta mt-2 text-ink-500">정책자금 관심은 여기서만 표시하고, 미팅에서 먼저 꺼내지 않습니다.</p>
+            </div>
+            <div>
+              <p className="t-section mb-2.5">미팅 일시</p>
+              <MeetingTimePicker value={meetingTime} onChange={(v) => {
+                setMeetingTime(v)
+                mark('meetingAt')
+              }} />
+            </div>
             <Field label="메모" optional hint="소개 경로, 참고사항. 내부용입니다.">
-              <TextArea value={memo} onChange={(e) => setMemo(e.target.value)} className="min-h-20" />
+              <TextArea value={memo} onChange={(e) => setMemo(e.target.value)} className="min-h-20" data-testid="company-memo" />
+              {memo && clearBtn(() => setMemo(''), 'clear-memo')}
             </Field>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="mt-6 rounded-(--radius-card) border border-line bg-white p-5 sm:p-6">
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[9rem_1fr]">
-              <dt className="t-sub font-bold text-ink-500">회사</dt>
-              <dd className="text-[1.15rem] font-bold">{name}</dd>
-              <dt className="t-sub font-bold text-ink-500">기본 구조</dt>
-              <dd className="t-body">
-                {industry ? INDUSTRY_LABEL[industry] : '-'}
-                {industryNote ? ` · ${industryNote}` : ''} · {headcount ? HEADCOUNT_LABEL[headcount] : '-'} · {tradeType ? TRADE_LABEL[tradeType] : '-'}
-              </dd>
-              <dt className="t-sub font-bold text-ink-500">관심사</dt>
-              <dd className="t-body">{(interests.length ? interests : ['unknown']).map((i) => INTEREST_LABEL[i as Interest]).join(' · ')}</dd>
-              {(representativeName || phone) && (
-                <>
-                  <dt className="t-sub font-bold text-ink-500">대표</dt>
-                  <dd className="t-body">
-                    {representativeName}
-                    {representativeName && phone ? ' · ' : ''}
-                    {phone}
-                  </dd>
-                </>
-              )}
-              {meetingAt && (
-                <>
-                  <dt className="t-sub font-bold text-ink-500">미팅 일시</dt>
-                  <dd className="t-body">{meetingAt.replace('T', ' ')}</dd>
-                </>
-              )}
-            </dl>
-            <p className="t-sub mt-4 text-ink-500">틀린 곳이 있으면 이전으로 돌아가 고치면 됩니다. 저장 후에도 수정할 수 있습니다.</p>
+            <div className="rounded-(--radius-card) border border-line bg-white p-4 sm:p-5">
+              <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[9rem_1fr]">
+                <dt className="t-sub font-bold text-ink-500">회사</dt>
+                <dd className="text-[1.1rem] font-bold">{name}</dd>
+                <dt className="t-sub font-bold text-ink-500">기본 구조</dt>
+                <dd className="t-body">
+                  {industry ? INDUSTRY_LABEL[industry] : '-'}
+                  {industryNote ? ` · ${industryNote}` : ''} · {headcount ? HEADCOUNT_LABEL[headcount] : '-'} · {tradeType ? TRADE_LABEL[tradeType] : '-'}
+                </dd>
+                {(representativeName || (phoneMode === 'input' && phone)) && (
+                  <>
+                    <dt className="t-sub font-bold text-ink-500">대표</dt>
+                    <dd className="t-body">
+                      {representativeName}
+                      {representativeName && phoneMode === 'input' && phone ? ' · ' : ''}
+                      {phoneMode === 'input' ? phone : ''}
+                    </dd>
+                  </>
+                )}
+                <dt className="t-sub font-bold text-ink-500">미팅</dt>
+                <dd className="t-body">{meetingTime.mode === 'now' ? '오늘 · 지금 (저장 시각)' : meetingTime.mode === 'custom' ? formatDate(meetingTime.iso, true) : '없음'}</dd>
+              </dl>
+            </div>
           </div>
         )}
       </div>
@@ -323,19 +452,24 @@ export default function CompanyNewPage() {
         </div>
       </Sheet>
 
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-        <Button size="md" onClick={back} disabled={step === 0 || busy} data-testid="prep-back">
-          <ArrowLeft aria-hidden="true" className="size-4" /> 이전
-        </Button>
-        {last ? (
-          <Button key="save" type="submit" variant="primary" size="lg" disabled={busy} data-testid="company-save">
-            {busy ? '저장 중…' : editing ? '저장하고 전략 보기' : '미팅 전략 만들기'}
+      <VoiceIntakeSheet open={voiceOpen} onClose={() => setVoiceOpen(false)} onApply={applyVoice} onUsed={() => void repo.track(user, 'voice_intake_used', null, { from: 'quick' })} />
+
+      {/* 하단 고정 CTA — 한 손으로 */}
+      <div className="fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+        <div className="mx-auto flex max-w-[760px] items-center justify-between gap-3 sm:border-t sm:border-line sm:pt-5">
+          <Button size="md" onClick={back} disabled={step === 0 || busy} data-testid="prep-back">
+            <ArrowLeft aria-hidden="true" className="size-4" /> 이전
           </Button>
-        ) : (
-          <Button key="next" type="button" variant="primary" size="lg" onClick={next} data-testid="prep-next">
-            다음 <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
-        )}
+          {last ? (
+            <Button key="save" type="submit" variant="primary" size="lg" disabled={busy} data-testid="company-save" className="flex-1 sm:flex-none">
+              {busy ? '저장 중…' : editing ? '저장하고 전략 보기' : '미팅 전략 만들기'}
+            </Button>
+          ) : (
+            <Button key="next" type="button" variant="primary" size="lg" onClick={next} data-testid="prep-next" className="flex-1 sm:flex-none">
+              다음 <ArrowRight aria-hidden="true" className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
     </form>
   )

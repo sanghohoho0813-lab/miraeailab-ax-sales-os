@@ -66,6 +66,8 @@ async function routes(browser: Browser, w: number, h: number, dual: boolean) {
   const list: [string, string][] = [
     ['home', '/'],
     ['new-meeting', '/companies/new'],
+    ['quick', '/companies/new/quick'],
+    ['pdf-intake', '/companies/new/pdf'],
     ['strategy', `/companies/${ids.companyId}`],
     ['live', `/meetings/${ids.liveMeetingId}/live`],
     ['cases', '/cases'],

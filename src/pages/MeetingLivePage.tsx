@@ -18,11 +18,7 @@ import { analyzeMeeting } from '../engine/analysis'
 import { nowIso } from '../lib/util'
 import { optionLabel } from '../content/questions'
 
-type SpeechRecognitionLike = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void }
-function getSpeech(): (new () => SpeechRecognitionLike) | null {
-  const w = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
-}
+import { getSpeechRecognition as getSpeech, type SpeechRecognitionLike } from '../lib/speech'
 
 type SheetKind = null | 'why' | 'say' | 'quote' | 'coach' | 'prefilled'
 type CoachTab = 'now' | 'price' | 'deferred' | 'funding'

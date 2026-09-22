@@ -38,9 +38,21 @@ const LOCAL_USERS: Record<PartnerRole, CurrentUser> = {
   master: { id: 'local-master', email: 'sanghohoho0813@gmail.com', name: '김상호', role: 'master', title: '대표' },
 }
 
+/** local 모드 시연·E2E — 'axpartner.local_profile_id' 가 있으면 그 파트너로 로그인한다 (두 번째 파트너 격리 확인용) */
+const LOCAL_PROFILE_KEY = 'axpartner.local_profile_id'
+
 /** local 모드: partner_members 흉내(localStorage)가 프로필 원천 */
 function localUser(role: PartnerRole): CurrentUser {
-  const base = LOCAL_USERS[role]
+  let base = LOCAL_USERS[role]
+  try {
+    const override = localStorage.getItem(LOCAL_PROFILE_KEY)
+    if (role === 'partner' && override && override !== base.id) {
+      const om = readLocalMember(override)
+      if (om && om.role === 'partner') base = { id: om.profileId, email: om.email, name: om.displayName, role: 'partner', title: om.title }
+    }
+  } catch {
+    /* noop */
+  }
   const m = readLocalMember(base.id)
   return m ? { ...base, name: m.displayName || base.name, title: m.title ?? base.title } : base
 }

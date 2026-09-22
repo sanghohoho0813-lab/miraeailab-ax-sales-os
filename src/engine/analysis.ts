@@ -32,7 +32,7 @@ import { nowIso } from '../lib/util'
 /* 영역별 문안 — INTERNAL / CLIENT SAFE / 손실 / 구조                    */
 /* ------------------------------------------------------------------ */
 
-const AREA_COPY: Record<QuestionArea, { internal: string; clientSafe: string; loss: string; structure: string }> = {
+export const AREA_COPY: Record<QuestionArea, { internal: string; clientSafe: string; loss: string; structure: string }> = {
   ceo_dependency: {
     internal: '대표 의존도 매우 높음 — 대표가 시스템 역할',
     clientSafe: '대표 중심으로 주요 확인·의사결정이 이루어지는 구조',

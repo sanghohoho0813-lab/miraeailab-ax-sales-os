@@ -74,10 +74,17 @@ export interface Company {
   pinnedCaseIds?: string[]
   /** 현재 담당 파트너(재배정). null 이면 consultantId(원 작성자). 과거 미팅·전달의 작성자는 덮어쓰지 않는다 */
   assignedTo?: string | null
+  /** 항목별 입력 출처 — 정보가 충돌할 때 무엇이 원본인지 (manual / pdf / voice / website_diagnosis / master_edit) */
+  fieldSources?: FieldSources
   archivedAt: string | null
   createdAt: string
   updatedAt: string
 }
+
+/** 업체 정보가 어디서 왔는가 */
+export type ProfileSource = 'manual' | 'pdf' | 'voice' | 'website_diagnosis' | 'master_edit'
+export type CompanyFieldKey = 'name' | 'representativeName' | 'phone' | 'industry' | 'headcount' | 'tradeType' | 'interests' | 'meetingAt' | 'memo'
+export type FieldSources = Partial<Record<CompanyFieldKey, ProfileSource>>
 
 export interface CreateCompanyInput {
   name: string
@@ -90,6 +97,93 @@ export interface CreateCompanyInput {
   phone?: string
   meetingAt?: string | null
   memo?: string
+  fieldSources?: FieldSources
+}
+
+/* ------------------------------------------------------------------ */
+/* 회사 프로필 — PDF·음성·수동 입력에서 구조화한 확장 정보 + 근거          */
+/* ------------------------------------------------------------------ */
+
+/** 추출된 값 하나 — 값·상태·출처·페이지·원문을 함께 가진다. 확인되지 않은 값은 confirmed 로 저장하지 않는다 */
+export interface EvidenceField {
+  key: string
+  label: string
+  value: string | number | null
+  /** 화면 표시용 (예: '14명', '12억 3,000만 원') */
+  display: string
+  status: EvidenceStatus
+  source: ProfileSource
+  sourcePage: number | null
+  /** 근거가 된 원문 한 줄 (개인정보 패턴은 제거된 상태) */
+  sourceText: string
+  /** 사용자가 "이 정보 사용 안 함" 으로 제외 */
+  removed?: boolean
+}
+
+export interface FinancialYear {
+  year: number
+  revenue: number | null
+  operatingProfit: number | null
+  netIncome: number | null
+  assets: number | null
+  liabilities: number | null
+  equity: number | null
+}
+
+/** 문서에서 구조화한 사실 — 문서에 실제로 있는 항목만 채운다 (없으면 null / []) */
+export interface ProfileFacts {
+  companyName: string | null
+  representativeName: string | null
+  phone: string | null
+  address: string | null
+  /** YYYY-MM-DD 또는 YYYY-MM 또는 YYYY */
+  foundedAt: string | null
+  yearsInBusiness: number | null
+  industryText: string | null
+  /** 표준산업분류 코드 (예: C28) */
+  industryCode: string | null
+  industry: Industry | null
+  subIndustry: string | null
+  headcount: number | null
+  headcountBand: Headcount | null
+  tradeType: TradeType | null
+  products: string[]
+  certifications: string[]
+  patents: number | null
+  /** 신용 관련 공개 정보 (등급 문구 그대로) */
+  creditNote: string | null
+  financials: FinancialYear[]
+  growth: { revenueTrend: 'up' | 'down' | 'flat' | null; revenueGrowthPct: number | null; latestYear: number | null }
+  notes: string[]
+}
+
+export interface CompanyProfile {
+  id: string
+  companyId: string
+  sourceType: ProfileSource
+  /** 문서 종류 (예: '크레탑 기업정보', '회사소개서', '음성 입력') */
+  sourceName: string
+  sourceFileName: string
+  /** 파일 SHA-256 — 같은 문서를 두 번 올렸는지 확인용. 원본은 저장하지 않는다 */
+  sourceHash: string
+  pageCount: number
+  facts: ProfileFacts
+  evidence: EvidenceField[]
+  parser: { adapter: string; version: string; textChars: number; warnings: string[] }
+  createdBy: string
+  createdAt: string
+}
+
+export interface CreateProfileInput {
+  companyId: string
+  sourceType: ProfileSource
+  sourceName: string
+  sourceFileName: string
+  sourceHash: string
+  pageCount: number
+  facts: ProfileFacts
+  evidence: EvidenceField[]
+  parser: CompanyProfile['parser']
 }
 
 /* ------------------------------------------------------------------ */
@@ -431,6 +525,16 @@ export type UsageEventType =
   | 'analysis_generated'
   | 'handoff_submitted'
   | 'pdf_printed'
+  /* 지능형 등록 (0006) */
+  | 'pdf_uploaded'
+  | 'pdf_parsed'
+  | 'pdf_confirmed'
+  | 'pdf_failed'
+  | 'voice_intake_used'
+  | 'strategy_generated'
+  | 'case_auto_matched'
+  | 'company_duplicate_detected'
+  | 'profile_corrected'
 
 export interface UsageEvent {
   id: string

@@ -9,7 +9,9 @@ import type {
   CaseStudy,
   Company,
   CompanyDeletePreview,
+  CompanyProfile,
   CreateCompanyInput,
+  CreateProfileInput,
   CurrentUser,
   DiagnosisSnapshot,
   Handoff,
@@ -20,6 +22,7 @@ import type {
   UsageEventType,
 } from '../types/domain'
 import type { HandoffSubmitResult, Repository } from './repository'
+import { emptyFacts } from '../engine/profile'
 
 type Row = Record<string, unknown>
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d)
@@ -44,6 +47,7 @@ function companyFromRow(r: Row): Company {
     memo: str(r.memo),
     pinnedCaseIds: arr(r.pinned_case_ids),
     assignedTo: strOrNull(r.assigned_to),
+    fieldSources: obj<Company['fieldSources']>(r.field_sources, {}),
     archivedAt: strOrNull(r.archived_at),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
@@ -63,7 +67,25 @@ function companyToRow(c: Company): Row {
     diagnosis: c.diagnosis,
     memo: c.memo,
     pinned_case_ids: c.pinnedCaseIds ?? [],
+    field_sources: c.fieldSources ?? {},
     archived_at: c.archivedAt,
+  }
+}
+function profileFromRow(r: Row): CompanyProfile {
+  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? 0))
+  return {
+    id: str(r.id),
+    companyId: str(r.company_id),
+    sourceType: str(r.source_type, 'manual') as CompanyProfile['sourceType'],
+    sourceName: str(r.source_name),
+    sourceFileName: str(r.source_file_name),
+    sourceHash: str(r.source_hash),
+    pageCount: num(r.page_count),
+    facts: { ...emptyFacts(), ...obj<Partial<CompanyProfile['facts']>>(r.profile_json, {}) },
+    evidence: Array.isArray(r.evidence_json) ? (r.evidence_json as CompanyProfile['evidence']) : [],
+    parser: { adapter: '', version: '', textChars: 0, warnings: [], ...obj<Partial<CompanyProfile['parser']>>(r.parser_json, {}) },
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
   }
 }
 function meetingFromRow(r: Row): Meeting {
@@ -236,6 +258,7 @@ export class SupabaseRepository implements Repository {
       phone: input.phone?.trim() ?? '',
       meeting_at: input.meetingAt ?? null,
       memo: input.memo?.trim() ?? '',
+      field_sources: input.fieldSources ?? {},
     }
     const { data, error } = await this.client.from('partner_companies').insert(row).select('*').single()
     if (error) fail(error, '업체를 등록하지 못했습니다.')
@@ -289,6 +312,35 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.client.rpc('partner_assign_company', { p_company_id: companyId, p_profile_id: profileId })
     if (error) fail(error, '담당을 바꾸지 못했습니다.')
     return companyFromRow(data as Row)
+  }
+
+  /* ---- 회사 프로필 — RLS(담당자만) + DB 트리거(주민번호 거부·회사 이동 금지·감사). 직접 delete 없음 ---- */
+  async listProfiles(_u: CurrentUser, companyId: string): Promise<CompanyProfile[]> {
+    const { data, error } = await this.client.from('partner_company_profiles').select('*').eq('company_id', companyId).order('created_at', { ascending: false })
+    if (error) fail(error, '기업자료를 불러오지 못했습니다.')
+    return (data ?? []).map((r) => profileFromRow(r as Row))
+  }
+  async createProfile(user: CurrentUser, input: CreateProfileInput): Promise<CompanyProfile> {
+    const row = {
+      company_id: input.companyId,
+      source_type: input.sourceType,
+      source_name: input.sourceName,
+      source_file_name: input.sourceFileName,
+      source_hash: input.sourceHash,
+      page_count: input.pageCount,
+      profile_json: input.facts,
+      evidence_json: input.evidence,
+      parser_json: input.parser,
+      created_by: user.id,
+    }
+    const { data, error } = await this.client.from('partner_company_profiles').insert(row).select('*').single()
+    if (error) fail(error, '기업자료를 저장하지 못했습니다.')
+    return profileFromRow(data as Row)
+  }
+  async updateProfile(_u: CurrentUser, profileId: string, patch: { facts: CompanyProfile['facts']; evidence: CompanyProfile['evidence'] }): Promise<CompanyProfile> {
+    const { data, error } = await this.client.from('partner_company_profiles').update({ profile_json: patch.facts, evidence_json: patch.evidence }).eq('id', profileId).select('*').single()
+    if (error) fail(error, '기업자료를 수정하지 못했습니다.')
+    return profileFromRow(data as Row)
   }
 
   async listMeetings(_u: CurrentUser, companyId?: string): Promise<Meeting[]> {

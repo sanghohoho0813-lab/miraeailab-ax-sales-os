@@ -44,7 +44,9 @@ export default function MasterUsagePage() {
     const openedCases = topCounts(u.filter((e) => e.eventType === 'case_opened').map((e) => String(e.payload.caseId ?? '')))
     const playbook = topCounts(u.filter((e) => e.eventType === 'playbook_opened').map((e) => String(e.payload.sectionId ?? '')))
     const submitted = handoffs.filter((h) => h.status !== 'withdrawn').length
-    return { done: done.length, avgMin, avgQ, skipped, hard, openedCases, playbook, submitted, ratio: done.length ? Math.round((submitted / done.length) * 100) : 0 }
+    const count = (t: string) => u.filter((e) => e.eventType === t).length
+    const intake = { pdfUploaded: count('pdf_uploaded'), pdfConfirmed: count('pdf_confirmed'), pdfFailed: count('pdf_failed'), voice: count('voice_intake_used'), corrected: count('profile_corrected'), duplicates: count('company_duplicate_detected'), strategies: count('strategy_generated') }
+    return { done: done.length, avgMin, avgQ, skipped, hard, openedCases, playbook, submitted, ratio: done.length ? Math.round((submitted / done.length) * 100) : 0, intake }
   }, [usage, meetings, handoffs])
 
   if (!usage) return <SkeletonList rows={3} />
@@ -61,6 +63,14 @@ export default function MasterUsagePage() {
         <Stat label="평균 질문 수" value={stats.avgQ} unit="개" />
         <Stat label="미팅 → 2차 제안 요청" value={stats.ratio} unit="%" hint={`${stats.submitted}건 전달`} />
       </div>
+      <FlatSection title="지능형 등록 (PDF · 음성)" sub="미팅 준비에 쓰는 시간을 줄이는지 보는 지표 — 건수만 보여 줍니다">
+        <div className="grid gap-4 rounded-(--radius-card) border border-line bg-white p-5 sm:grid-cols-4" data-testid="intake-stats">
+          <Stat label="PDF 업로드" value={stats.intake.pdfUploaded} unit="건" hint={`확정 ${stats.intake.pdfConfirmed} · 실패 ${stats.intake.pdfFailed}`} />
+          <Stat label="음성 입력 사용" value={stats.intake.voice} unit="회" />
+          <Stat label="추출값 수정·제외" value={stats.intake.corrected} unit="회" hint="PDF 추출 후 고친 항목" />
+          <Stat label="중복 안내" value={stats.intake.duplicates} unit="회" hint={`전략 자동생성 ${stats.intake.strategies}회`} />
+        </div>
+      </FlatSection>
       {stats.done < MIN_MEETINGS ? (
         <div className="rounded-(--radius-card) border border-dashed border-line-strong bg-white px-5 py-8 text-center" data-testid="usage-gate">
           <p className="t-section">아직 학습 데이터가 충분하지 않습니다.</p>

@@ -11,6 +11,8 @@
 --   5. 남의 미팅은 전달할 수 없다
 --   6. 역동기화 — 운영 OS 가 이벤트를 처리하면 파트너 handoff 상태가 따라온다
 --   7. 사례 DB — 초안은 마스터만, 파트너 등록은 마스터만
+--   8~12. (0005) 고객 lifecycle · 철회 계약 · 파트너 수정 · 재배정 · 미팅 삭제
+--   13~15. (0006) 회사 프로필 격리/주민번호 거부/감사 · 삭제 권한 매트릭스 · 지능형 등록 이벤트
 -- =====================================================================
 begin;
 
@@ -472,6 +474,109 @@ do $$ declare cid uuid := (select v from ids where k='company'); m1 uuid; m2 uui
   select count(*) into n from public.partner_audit_events; assert n > 5, '마스터는 감사 로그를 본다: ' || n;
   perform pg_temp.as_super();
   raise notice 'T12 미팅 삭제·사례 검수·감사 OK';
+end $$;
+
+
+-- ---------------------------------------------------------------------
+-- 13. (0006) 회사 프로필 — 파트너 격리 · 주민번호 거부 · 수정만 가능(삭제 불가) · 회사 이동 금지 · 감사 · 항목 출처
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid := (select v from ids where k='company'); pid uuid; n int; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  insert into public.partner_company_profiles (company_id, source_type, source_name, source_file_name, source_hash, page_count, profile_json, evidence_json, parser_json, created_by)
+  values (cid, 'pdf', '기업정보 보고서', 'abc.pdf', 'sha256:test', 12,
+          '{"companyName":"ABC산업","headcount":14,"financials":[{"year":2025,"revenue":1230000000}]}'::jsonb,
+          '[{"key":"headcount","label":"직원수","value":14,"display":"14명","status":"confirmed","source":"pdf","sourcePage":8,"sourceText":"종업원수 14명"}]'::jsonb,
+          '{"adapter":"generic","version":"1"}'::jsonb, (select v from fx where k='partner1'))
+  returning id into pid;
+  -- 항목별 출처 기록
+  update public.partner_companies set field_sources = '{"headcount":"pdf","phone":"voice"}'::jsonb where id = cid;
+  assert (select field_sources->>'headcount' from public.partner_companies where id = cid) = 'pdf', '항목 출처 저장';
+  -- 주민등록번호 패턴은 거부
+  begin
+    insert into public.partner_company_profiles (company_id, source_type, source_hash, evidence_json, created_by)
+    values (cid, 'pdf', 'sha256:x', '[{"key":"x","sourceText":"대표자 901231-1234567"}]'::jsonb, (select v from fx where k='partner1'));
+    raise exception '주민번호가 저장되면 안 된다';
+  exception when invalid_parameter_value then null; end;
+  -- 다른 사람 이름으로 못 만든다
+  begin
+    insert into public.partner_company_profiles (company_id, source_type, source_hash, created_by)
+    values (cid, 'pdf', 'sha256:y', (select v from fx where k='partner2'));
+    raise exception '남의 created_by 로 insert 가 되면 안 된다';
+  exception when insufficient_privilege then null; end;
+  -- 수정(사용 안 함 표시)은 된다, 회사 이동은 안 된다, 삭제는 0건
+  update public.partner_company_profiles set evidence_json = jsonb_set(evidence_json, '{0,removed}', 'true') where id = pid;
+  assert (select evidence_json->0->>'removed' from public.partner_company_profiles where id = pid) = 'true', '사용 안 함 표시';
+  begin
+    update public.partner_company_profiles set company_id = gen_random_uuid() where id = pid;
+    raise exception '프로필을 다른 회사로 옮기면 안 된다';
+  exception when insufficient_privilege or foreign_key_violation then null; end;
+  delete from public.partner_company_profiles where id = pid;
+  select count(*) into n from public.partner_company_profiles where id = pid; assert n = 1, '직접 삭제는 0건';
+  perform pg_temp.as_super();
+  -- 다른 파트너는 한 줄도 못 보고 못 만든다
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  select count(*) into n from public.partner_company_profiles; assert n = 0, '다른 파트너의 프로필이 보이면 안 된다';
+  begin
+    insert into public.partner_company_profiles (company_id, source_type, source_hash, created_by)
+    values (cid, 'manual', '', (select v from fx where k='partner2'));
+    raise exception '남의 회사에 프로필을 만들면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  -- 마스터는 전체를 보고, 감사 로그에 profile_added / profile_corrected 가 남는다
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  select count(*) into n from public.partner_company_profiles where company_id = cid; assert n = 1, '마스터는 프로필을 본다';
+  select count(*) into n from public.partner_audit_events where action = 'profile_added' and target_id = cid::text; assert n = 1, '프로필 추가 감사';
+  select count(*) into n from public.partner_audit_events where action = 'profile_corrected' and target_id = cid::text; assert n >= 1, '프로필 수정 감사';
+  perform pg_temp.as_super();
+  raise notice 'T13 회사 프로필 OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 14. (0006 확인) 삭제 권한 매트릭스 — 파트너는 남의 고객을 보관/삭제 못 한다, 마스터는 누가 등록했든 보관·복구·영구삭제 (안전 RPC)
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid; n int; prev jsonb; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  insert into public.partner_companies (consultant_id, name, industry) values ((select v from fx where k='partner1'), '권한테스트', 'service') returning id into cid;
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  begin
+    perform public.partner_archive_company(cid);
+    raise exception '다른 파트너의 고객을 보관하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.partner_delete_company_safe(cid, '권한테스트');
+    raise exception '다른 파트너의 고객을 삭제하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  perform public.partner_archive_company(cid);
+  assert (select archived_at from public.partner_companies where id = cid) is not null, '마스터 보관';
+  perform public.partner_restore_company(cid);
+  assert (select archived_at from public.partner_companies where id = cid) is null, '마스터 복구';
+  perform public.partner_archive_company(cid);
+  prev := public.partner_company_delete_preview(cid);
+  assert (prev->>'can_delete')::boolean, '마스터 영구삭제 가능: ' || prev::text;
+  perform public.partner_delete_company_safe(cid, '권한 테스트');
+  select count(*) into n from public.partner_companies where id = cid; assert n = 0, '마스터 영구삭제';
+  perform pg_temp.as_super();
+  raise notice 'T14 삭제 권한 매트릭스 OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 15. (0006) 지능형 등록 사용 이벤트 — 새 event_type 허용, 모르는 값은 거부
+-- ---------------------------------------------------------------------
+do $$ declare n int; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  insert into public.partner_meeting_events (meeting_id, consultant_id, event_type, payload)
+  values (null, (select v from fx where k='partner1'), 'pdf_parsed', '{"pageCount":12,"fields":9}'::jsonb),
+         (null, (select v from fx where k='partner1'), 'strategy_generated', '{"confidence":"high"}'::jsonb);
+  select count(*) into n from public.partner_meeting_events where event_type in ('pdf_parsed','strategy_generated'); assert n = 2, '새 이벤트 저장';
+  begin
+    insert into public.partner_meeting_events (meeting_id, consultant_id, event_type) values (null, (select v from fx where k='partner1'), 'bogus_event');
+    raise exception '모르는 이벤트가 저장되면 안 된다';
+  exception when check_violation then null; end;
+  perform pg_temp.as_super();
+  raise notice 'T15 지능형 등록 이벤트 OK';
 end $$;
 
 select 'PARTNER OS CONTRACT: ALL ASSERTIONS PASSED' as result;

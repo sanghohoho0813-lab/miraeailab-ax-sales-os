@@ -5,8 +5,8 @@
   "type": "module",
   "description": "미래AI랩 AX Partner OS — 컨설턴트용 AX 미팅 가이드 (1차 미팅 → 운영 OS 2차 제안 요청)",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/copy-pdf-assets.mjs && vite",
+    "build": "node scripts/copy-pdf-assets.mjs && tsc -b && vite build",
     "typecheck": "tsc -b --force",
     "lint": "oxlint",
     "preview": "vite preview",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
     "lucide-react": "^1.47.0",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.18.0"

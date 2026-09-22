@@ -9,6 +9,7 @@ import CompaniesPage from './pages/CompaniesPage'
 import CompanyTrashPage from './pages/CompanyTrashPage'
 import MeetingsPage from './pages/MeetingsPage'
 import CompanyNewPage from './pages/CompanyNewPage'
+import IntakeStartPage from './pages/IntakeStartPage'
 import CompanyPage from './pages/CompanyPage'
 import MeetingLivePage from './pages/MeetingLivePage'
 import MeetingResultPage from './pages/MeetingResultPage'
@@ -21,6 +22,8 @@ import HandoffPage from './pages/HandoffPage'
 
 // 인쇄 리포트·마스터 화면은 자주 쓰지 않으므로 분리 청크
 const MeetingReportPage = lazy(() => import('./pages/MeetingReportPage'))
+// PDF 읽기(pdf.js)는 무거워서 필요할 때만
+const PdfIntakePage = lazy(() => import('./pages/PdfIntakePage'))
 const MasterInboxPage = lazy(() => import('./pages/MasterInboxPage'))
 const MasterPartnersPage = lazy(() => import('./pages/MasterPartnersPage'))
 const MasterPartnerProfilePage = lazy(() => import('./pages/MasterPartnerProfilePage'))
@@ -65,10 +68,27 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="meetings" element={<MeetingsPage />} />
         <Route path="companies" element={<CompaniesPage />} />
-        <Route path="companies/new" element={<CompanyNewPage />} />
+        <Route path="companies/new" element={<IntakeStartPage />} />
+        <Route path="companies/new/quick" element={<CompanyNewPage />} />
+        <Route
+          path="companies/new/pdf"
+          element={
+            <Suspense fallback={<Spinner />}>
+              <PdfIntakePage />
+            </Suspense>
+          }
+        />
         <Route path="companies/trash" element={<CompanyTrashPage />} />
         <Route path="companies/:companyId" element={<CompanyPage />} />
         <Route path="companies/:companyId/edit" element={<CompanyNewPage />} />
+        <Route
+          path="companies/:companyId/pdf"
+          element={
+            <Suspense fallback={<Spinner />}>
+              <PdfIntakePage />
+            </Suspense>
+          }
+        />
         <Route path="meetings/:meetingId/live" element={<MeetingLivePage />} />
         <Route path="meetings/:meetingId/result" element={<MeetingResultPage />} />
         <Route path="handoffs/:handoffId" element={<HandoffPage />} />

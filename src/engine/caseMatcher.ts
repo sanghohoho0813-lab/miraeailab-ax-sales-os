@@ -1,11 +1,35 @@
 /**
- * 유사사례 추천 — 업종만으로 매칭하지 않는다.
+ * 유사사례 추천 V2 — 업종만으로 매칭하지 않는다. Vector DB·임베딩 없이 규칙 + 키워드 + 가중치로 371건을 고른다.
  * 가중치: 업종(3/1) · 현재 문제구조(2×일치 수) · B2B/B2C(1) · 업무구조·AX 전환방식(1) · 기업규모↔금액구간(2) · 자금유형(1) · 검증(1)
+ *   + V2: 세부업종·제품 키워드(최대 2) · 성장추이→성장단계(1) · 인증(연구소·벤처)↔R&D·사업화 자금경로(1) · 고객접점 필요↔포털 전환(1)
  * 점수는 내부 정렬용이며 화면에는 % 나 점수 대신 자연어 이유 태그만 보여 준다.
- * 기본 추천 2개: ① 동일/가장 가까운 업종  ② 업종은 달라도 문제구조가 가장 비슷한 사례
+ * 기본 추천 3개: ① 동일/가장 가까운 업종  ② 업종은 달라도 문제구조가 가장 비슷한 사례  ③ 전환경로(AX Path)가 가장 가까운 사례
  * reviewRequired(needs_review) 사례는 기본 추천에서 제외한다(마스터 검수 전).
  */
 import type { CaseStudy, Company, QuestionArea } from '../types/domain'
+
+/** PDF·음성 프로필에서 오는 추가 신호 (모두 선택) */
+export interface ProfileSignals {
+  subIndustry?: string | null
+  /** 주요 제품·서비스 */
+  keywords?: string[]
+  revenueTrend?: 'up' | 'down' | 'flat' | null
+  yearsInBusiness?: number | null
+  certifications?: string[]
+}
+
+const STOP = new Set(['제조업', '제조', '서비스업', '서비스', '주식회사', '기타', '부품', '및', '등', '업', '기업', '회사'])
+export function tokens(...parts: (string | null | undefined)[]): string[] {
+  const out = new Set<string>()
+  for (const p of parts) {
+    if (!p) continue
+    for (const t of p.split(/[^가-힣A-Za-z0-9]+/)) {
+      const w = t.trim()
+      if (w.length >= 2 && !STOP.has(w) && !/^\d+$/.test(w)) out.add(w)
+    }
+  }
+  return [...out]
+}
 
 const NEAR_INDUSTRY: Record<string, string[]> = {
   manufacturing: ['distribution', 'logistics'],
@@ -35,6 +59,10 @@ export interface MatchOptions {
   areaLabel: (a: QuestionArea) => string
   /** 마스터 검수 화면 등에서 needs_review 사례까지 포함 */
   includeReviewRequired?: boolean
+  /** V2 — PDF·음성 프로필 신호 */
+  profile?: ProfileSignals
+  /** V2 — 거래처 접점 화면이 필요한 구조(B2B + 견적·주문/거래처 관리 문제) */
+  customerTouchpoint?: boolean
 }
 
 const SMALL_HEADCOUNT = new Set(['1-5', '6-10', '11-20'])
@@ -47,9 +75,14 @@ function bandRank(c: CaseStudy): number | null {
   return 3
 }
 
+export type MatchKind = 'industry' | 'problem' | 'path'
+export const MATCH_KIND_LABEL: Record<MatchKind, string> = { industry: '업종이 가까운 사례', problem: '문제구조가 가까운 사례', path: '전환경로가 가까운 사례' }
+
 export interface CaseRecommendation {
   primary: CaseMatch | null
   secondary: CaseMatch | null
+  /** V2 — 전환경로(AX Path)가 가장 가까운 사례 */
+  tertiary: CaseMatch | null
   others: CaseMatch[]
 }
 
@@ -57,11 +90,23 @@ function overlap(a: QuestionArea[], b: QuestionArea[]): QuestionArea[] {
   return a.filter((x) => b.includes(x))
 }
 
-function growthOf(company: Company, growthAnswer: string | null): CaseStudy['growthStage'] | null {
+function growthOf(company: Company, growthAnswer: string | null, profile?: ProfileSignals): CaseStudy['growthStage'] | null {
   if (growthAnswer === 'aggressive') return 'growing'
   if (growthAnswer === 'steady') return 'stable'
+  if (profile?.revenueTrend === 'up') return 'growing'
+  if (profile?.yearsInBusiness !== null && profile?.yearsInBusiness !== undefined && profile.yearsInBusiness <= 3) return 'early'
+  if (profile?.revenueTrend === 'flat' && (profile.yearsInBusiness ?? 0) >= 10) return 'stable'
   if (company.headcount === '1-5') return 'early'
   return null
+}
+
+function desiredPath(company: Company, opts: MatchOptions): CaseStudy['axPath'][] {
+  const wantsPortal = opts.customerTouchpoint || company.interests.includes('customer') || company.interests.includes('sales')
+  const wantsInternal = company.interests.includes('efficiency')
+  if (wantsPortal && wantsInternal) return ['hybrid', 'customer_portal', 'internal_ax']
+  if (wantsPortal) return ['customer_portal', 'hybrid']
+  if (company.headcount === '1-5') return ['simple_automation', 'internal_ax']
+  return ['internal_ax', 'hybrid']
 }
 
 export function scoreCase(c: CaseStudy, company: Company, painAreas: QuestionArea[], opts: MatchOptions): CaseMatch {
@@ -108,11 +153,32 @@ export function scoreCase(c: CaseStudy, company: Company, painAreas: QuestionAre
       differences.push('20억 이상 큰 조달 — 방향만 참고')
     }
   }
-  // 6) 성장단계
-  const g = growthOf(company, opts.growthAnswer ?? null)
+  // 6) 성장단계 — 미팅 답변 > PDF 매출추이·업력 > 인원
+  const g = growthOf(company, opts.growthAnswer ?? null, opts.profile)
   if (g && c.growthStage === g) {
     score += 1
-    reasons.push('성장단계 유사')
+    reasons.push(opts.profile?.revenueTrend === 'up' && !opts.growthAnswer ? '성장 추이 유사 (매출 증가)' : '성장단계 유사')
+  }
+  // V2-a) 세부업종·제품 키워드
+  if (opts.profile) {
+    const mine = tokens(opts.profile.subIndustry, ...(opts.profile.keywords ?? []))
+    const theirs = tokens(c.subIndustry, c.oneLiner, ...(c.keywords ?? []))
+    const hits = mine.filter((t) => theirs.some((u) => u.includes(t) || t.includes(u)))
+    if (hits.length) {
+      score += Math.min(2, hits.length)
+      reasons.push(`세부업종·제품 유사: ${hits.slice(0, 2).join('·')}`)
+    }
+    // V2-b) 인증(연구소·벤처) ↔ R&D·사업화 자금 경로
+    const techCert = (opts.profile.certifications ?? []).some((x) => /연구소|전담부서|벤처|이노비즈/.test(x))
+    if (techCert && (c.fundingType === 'gov_rnd' || c.fundingType === 'commercialization' || c.fundingType === 'mixed')) {
+      score += 1
+      reasons.push('기술 인증 기업의 R&D·사업화 경로')
+    }
+  }
+  // V2-c) 고객 접점 필요 ↔ 포털 전환
+  if (opts.customerTouchpoint && (c.axPath === 'customer_portal' || c.axPath === 'hybrid')) {
+    score += 1
+    if (!reasons.includes('고객 접점 전환 방식')) reasons.push('거래처 접점 화면이 필요한 구조')
   }
   // 7) 자금유형 — 자금 관심이 있을 때만 정책·보증·R&D 사례에 가산
   const policyLike = c.fundingType === 'guarantee' || c.fundingType === 'policy_loan' || c.fundingType === 'gov_rnd' || c.fundingType === 'mixed' || c.fundingType === 'commercialization'
@@ -145,6 +211,13 @@ export function recommendCases(cases: CaseStudy[], company: Company, painAreas: 
     scored.find((m) => m !== primary && m.caseStudy.industry !== company.industry && overlap(painAreas, m.caseStudy.problemAreas).length > 0) ??
     scored.find((m) => m !== primary) ??
     null
-  const others = scored.filter((m) => m !== primary && m !== secondary)
-  return { primary, secondary, others }
+  const paths = desiredPath(company, opts)
+  const tertiary =
+    scored.find((m) => m !== primary && m !== secondary && paths.includes(m.caseStudy.axPath) && m.reasons.length >= 2) ??
+    scored.find((m) => m !== primary && m !== secondary && paths.includes(m.caseStudy.axPath)) ??
+    scored.find((m) => m !== primary && m !== secondary) ??
+    null
+  if (tertiary && !tertiary.reasons.some((r) => /전환 방식|접점/.test(r))) tertiary.reasons.push(tertiary.caseStudy.axPath === 'customer_portal' || tertiary.caseStudy.axPath === 'hybrid' ? '고객 접점 전환 방식' : tertiary.caseStudy.axPath === 'simple_automation' ? '작게 시작한 자동화 방식' : '내부 업무 전환 방식')
+  const others = scored.filter((m) => m !== primary && m !== secondary && m !== tertiary)
+  return { primary, secondary, tertiary, others }
 }

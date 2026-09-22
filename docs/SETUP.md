@@ -15,6 +15,7 @@
    3. `supabase/migrations/20260922000003_partner_cases_research_seed.sql` — 리서치 PDF 기반 실제 사례 371건(검수 완료 291 · 검수 필요 80). 이미 있는 id 는 건드리지 않는다.
    4. `supabase/migrations/20260922000004_partner_companies_pinned_cases.sql` — 업체별 "미팅에 사용할 사례" 컬럼
    5. `supabase/migrations/20260922000005_partner_ops_hardening.sql` — 운영 안정화: 고객 휴지통/복구/안전 영구삭제 RPC(직접 DELETE 는 RLS 로 차단), 전달 요청 철회↔운영 OS ignored 양방향, 미팅 취소/삭제 규칙, 파트너 호칭·수정 RPC·마지막 마스터 보호 트리거, 담당 재배정(assigned_to), 감사 로그(partner_audit_events), 사례 검수 RPC·last_verified_at. **운영 OS 패치 브랜치(`claude/partner-os-handoff-v1`)의 `withdrawn` 라벨 커밋을 먼저 배포한다.**
+   6. `supabase/migrations/20260922000006_partner_intake_profiles.sql` — 지능형 등록: `partner_companies.field_sources`(항목별 입력 출처), `partner_company_profiles`(PDF·음성 구조화 스냅샷 + 근거, 이력 보존, 직접 DELETE 차단, 주민번호 패턴 DB 거부 트리거, 감사), 사용 이벤트 9종 추가. **PDF 원본은 저장하지 않는다(Storage 버킷 없음).**
 3. **사례 검수** — 마스터가 실제 사례 화면에서 `검수 필요` 행을 열어 검수 후 `검수 완료` 로 바꾸면 파트너 기본 추천에 들어간다. DB 가 비어 있으면 앱이 코드 시드(`src/content/research-cases.json`)를 읽기 전용으로 보여 준다.
 4. **Partner OS 배포 (Vercel)** — 새 프로젝트, 환경변수:
    ```
@@ -66,3 +67,12 @@ HOMEPAGE_DIR=../mirae-ai-lab-homepage OPS_DIR=../AX-MVP-Factory-OS \
 bash supabase/tests/run_local.sh
 # → PARTNER OS CONTRACT: ALL ASSERTIONS PASSED
 ```
+
+
+## PDF 읽기 자산 (pdf.js)
+
+`npm run dev` / `npm run build` 는 먼저 `scripts/copy-pdf-assets.mjs` 로 `node_modules/pdfjs-dist` 의 `cmaps/`·`standard_fonts/` 를 `public/pdfjs/` 로 복사한다 (git 에는 넣지 않는다). 크레탑처럼 CJK CID 폰트를 쓰는 PDF 를 브라우저에서 읽으려면 필요하다. 외부 CDN 을 쓰지 않는다.
+
+## AI 문장 보강 (선택)
+
+전략은 규칙 엔진으로 완성된다. `VITE_AI_ENHANCER_URL` 이 있을 때만 [AI로 문장 다듬기] 버튼이 보이고, 같은 입력(해시)이면 다시 부르지 않는다. 브라우저에는 Secret 을 두지 않으며, 서버 엔드포인트의 요청/응답 계약은 `src/lib/ai/strategyEnhancer.ts` 의 `GroundedStrategyInput` / `EnhancedText` 다. 서버 함수는 이번 차수에 포함되지 않았다.
