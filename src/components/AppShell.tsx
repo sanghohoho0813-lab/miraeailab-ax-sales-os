@@ -65,7 +65,7 @@ function Clock({ compact = false }: { compact?: boolean }) {
   return (
     <time data-testid="live-clock" className="tnum inline-flex items-baseline gap-2 whitespace-nowrap text-ink-700" aria-live="off">
       {!compact && (
-        <span className="t-sub hidden font-semibold md:inline">
+        <span className="t-sub hidden font-semibold @4xl/header:inline">
           {c.date} {c.weekday}
         </span>
       )}
@@ -103,11 +103,11 @@ function DeviceSwitch() {
 function UserChip() {
   const { user, mode } = useAuth()
   return (
-    <Link to="/settings" className="nav-item inline-flex max-w-[40vw] items-center gap-2 rounded-full border border-line bg-white py-1 pl-1 pr-3 hover:bg-paper-2 lg:max-w-none" aria-label="설정 · 프로필">
-      <span aria-hidden="true" className="inline-flex size-8 items-center justify-center rounded-full bg-accent-100 text-[0.9rem] font-black text-accent-800">
+    <Link to="/settings" className="nav-item inline-flex min-w-0 items-center gap-2 rounded-full border border-line bg-white py-1 pl-1 pr-1 hover:bg-paper-2 @xl/header:pr-3" aria-label="설정 · 프로필">
+      <span aria-hidden="true" className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-100 text-[0.9rem] font-black text-accent-800">
         {user?.name?.slice(0, 1) ?? '?'}
       </span>
-      <span className="min-w-0">
+      <span className="hidden min-w-0 @xl/header:block">
         <span className="block truncate text-[0.95rem] font-bold leading-tight">{user?.name}</span>
         <span className="t-meta block truncate leading-tight text-ink-500">
           {user?.role === 'master' ? '마스터' : '파트너'}
@@ -183,20 +183,20 @@ function FocusRail() {
 
 function Header({ title, showDevice }: { title: string; showDevice: boolean }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6 lg:px-8 lg:py-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="lg:hidden">
+    <header className="@container/header sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6 lg:px-8 lg:py-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="hidden shrink-0 min-[420px]:inline lg:hidden">
           <BrandLogo size="sm" subtitle={null} />
         </span>
-        <h1 className="truncate text-[1.1rem] font-bold text-ink-900 lg:text-[1.35rem]" data-testid="route-title">
+        <p className="min-w-0 flex-1 truncate text-[1.1rem] font-bold text-ink-900 lg:text-[1.35rem]" data-testid="route-title">
           {title}
-        </h1>
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3 lg:gap-4">
-        <span className="hidden sm:inline-flex">
+      <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3 lg:gap-4">
+        <span className="hidden @2xl/header:inline-flex">
           <Clock />
         </span>
-        <span className="sm:hidden">
+        <span className="@2xl/header:hidden">
           <Clock compact />
         </span>
         {showDevice && <DeviceSwitch />}
@@ -289,7 +289,7 @@ export function AppShell() {
   if (showDevice && view === 'dual') {
     return (
       <div className="flex min-h-dvh" data-testid="dual-view">
-        <div className="min-w-0 flex-[0_0_67%]">
+        <div className="min-w-0 flex-[0_0_67%] overflow-x-clip">
           <ShellFrame focus={focus} showDevice />
         </div>
         <aside className="sticky top-0 flex h-dvh flex-[0_0_33%] flex-col items-center justify-center border-l border-line bg-paper-2 px-3" aria-label="모바일 미리보기">

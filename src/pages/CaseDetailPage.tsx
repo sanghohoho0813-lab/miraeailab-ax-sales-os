@@ -132,19 +132,22 @@ export default function CaseDetailPage() {
           )}
           {company && (
             <span className="t-sub text-ink-500">
-              {company.name} 미팅 전략에 표시됩니다{pinned && ' · 사용 중'}
+              {company.name} 미팅 전략에 표시됩니다{pinned && ' · 사용 중'} ·{' '}
+              <Link to={`/companies/${company.id}`} className="font-semibold text-accent-700 underline">
+                미팅 전략으로
+              </Link>
             </span>
           )}
         </div>
       </header>
 
       {/* 흐름 */}
-      <ol className="grid gap-3 md:grid-cols-5" aria-label="사례 흐름">
+      <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="사례 흐름">
         {STEPS.map((s, i) => {
           const items = flow[s.key]
           return (
             <li key={s.key} className="reveal relative flex min-h-[9rem] flex-col rounded-(--radius-card) border border-line bg-white p-4" style={{ animationDelay: `${i * 50}ms` }} data-testid={`flow-${s.key}`}>
-              <p className="t-meta font-black tracking-[0.12em] text-accent-700">
+              <p className="text-[0.78rem] font-black tracking-[0.06em] text-accent-700">
                 {i + 1}. {s.label}
               </p>
               <p className="t-sub font-bold text-ink-500">{s.ko}</p>
@@ -160,7 +163,7 @@ export default function CaseDetailPage() {
                 </ul>
               )}
               {i < STEPS.length - 1 && (
-                <span aria-hidden="true" className="absolute top-1/2 -right-3 hidden -translate-y-1/2 text-ink-300 md:block">
+                <span aria-hidden="true" className="absolute top-1/2 -right-3 hidden -translate-y-1/2 text-ink-300 xl:block">
                   →
                 </span>
               )}

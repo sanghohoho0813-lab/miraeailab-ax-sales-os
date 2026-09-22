@@ -122,10 +122,10 @@ export const FUNDING_TYPE_LABEL: Record<FundingType, string> = {
 
 export const HANDOFF_STATUS_LABEL: Record<string, string> = {
   draft: '전달 전',
-  submitted: '전달됨',
-  received: '운영 OS 수신',
-  reviewing: '김상호 대표 검토 중',
-  proposal_ready: '2차 제안 준비 완료',
+  submitted: '전달 완료',
+  received: '검토중',
+  reviewing: '2차 제안 준비중',
+  proposal_ready: '제안 준비완료',
 }
 
 export const MEETING_STATUS_LABEL: Record<string, string> = {

@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useSession } from '../lib/auth'
 import type { PartnerMember } from '../types/domain'
-import { Badge, Button, Field, PageTitle, Section, Spinner, TextInput, useToast } from '../components/ui'
+import { Badge, Button, Field, PageTitle, Section, SkeletonList, TextInput, useToast } from '../components/ui'
 import { formatDate } from '../lib/util'
 
 export default function MasterPartnersPage() {
@@ -15,7 +15,7 @@ export default function MasterPartnersPage() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    document.title = '파트너 관리 · AX 미팅 가이드'
+    document.title = '파트너 관리 · AX Partner OS'
     repo.listMembers(user).then(setMembers).catch((e) => toast.show(e instanceof Error ? e.message : '불러오지 못했습니다.', 'danger'))
   }, [repo, user, toast])
 
@@ -41,7 +41,7 @@ export default function MasterPartnersPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-[1100px] space-y-5">
       <PageTitle title="파트너 관리" sub="파트너는 본인 업체와 미팅만 봅니다. 운영 OS 전체 정보와 내부 가격 전략은 보이지 않습니다." />
       <Section title="파트너 등록" sub="miraeailab.com 에 가입한 이메일이어야 합니다.">
         <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
@@ -64,7 +64,7 @@ export default function MasterPartnersPage() {
       </Section>
       <Section title="등록된 파트너">
         {!members ? (
-          <Spinner />
+          <SkeletonList rows={2} />
         ) : (
           <ul className="divide-y divide-line">
             {members.map((m) => (

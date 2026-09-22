@@ -178,23 +178,23 @@ export default function MeetingLivePage() {
   const progress = Math.round(((isFinal ? total : index) / Math.max(1, total)) * 100)
 
   return (
-    <div className="mx-auto max-w-[820px] pb-28">
+    <div className="mx-auto max-w-[820px] pb-36 sm:pb-28">
       {/* 포커스 헤더 */}
       <div className="sticky top-0 z-30 -mx-4 border-b border-line bg-white/95 px-4 backdrop-blur sm:-mx-6 sm:px-6">
         <div className="flex items-center justify-between gap-3 py-2.5">
-          <Link to={`/companies/${company.id}`} className="nav-item t-sub inline-flex items-center gap-1 rounded-(--radius-control) px-1 py-1 text-ink-500 hover:text-ink-900" aria-label="미팅 전략으로 나가기">
-            <X aria-hidden="true" className="size-4" /> 나가기
+          <Link to={`/companies/${company.id}`} className="nav-item t-sub inline-flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1 py-1 whitespace-nowrap text-ink-500 hover:text-ink-900" aria-label="미팅 전략으로 나가기">
+            <X aria-hidden="true" className="size-5" /> <span className="hidden sm:inline">나가기</span>
           </Link>
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3" data-testid="live-header">
-            <span className="truncate text-[1.05rem] font-bold text-ink-900">{company.name}</span>
+          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap sm:gap-3" data-testid="live-header">
+            <span className="min-w-0 truncate text-[1rem] font-bold text-ink-900 sm:text-[1.05rem]">{company.name}</span>
             <span className="text-ink-300" aria-hidden="true">
               /
             </span>
-            <span className="t-meta font-black tracking-[0.12em] text-accent-700">LIVE MEETING</span>
+            <span className="t-meta shrink-0 font-black tracking-[0.1em] text-accent-700">LIVE MEETING</span>
             <span className="text-ink-300" aria-hidden="true">
               /
             </span>
-            <span className="tnum t-sub font-bold text-ink-700" aria-live="polite" data-testid="live-progress">
+            <span className="tnum t-sub shrink-0 font-bold text-ink-700" aria-live="polite" data-testid="live-progress">
               {isFinal ? '마무리' : `${index + 1} / ${total}`}
             </span>
           </div>
@@ -292,15 +292,15 @@ export default function MeetingLivePage() {
         </div>
       )}
 
-      {/* 떠 있는 버튼 — 대표 핵심말 기록 · 코치 */}
-      <div className="pb-safe fixed right-4 bottom-4 z-40 flex flex-col items-end gap-2 sm:right-6 sm:bottom-6">
+      {/* 떠 있는 버튼 — 모바일은 하단 바, PC 는 오른쪽 아래 */}
+      <div className="pb-safe fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:inset-x-auto sm:right-6 sm:bottom-6 sm:flex-col sm:items-end sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
         {!isFinal && (
-          <button type="button" onClick={() => openSheet('quote')} data-testid="open-quote" className="btn inline-flex items-center gap-2 rounded-full bg-accent-600 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-accent-700" aria-haspopup="dialog">
+          <button type="button" onClick={() => openSheet('quote')} data-testid="open-quote" className="btn inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-accent-600 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-accent-700 sm:flex-none" aria-haspopup="dialog">
             <Quote aria-hidden="true" className="size-5" /> 대표 핵심말 기록
             {meeting.keyQuote.trim() && <span className="ml-1 inline-flex size-2 rounded-full bg-white" aria-label="기록 있음" />}
           </button>
         )}
-        <button type="button" onClick={() => openSheet('coach', 'now')} data-testid="open-coach" className="btn inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-ink-700" aria-haspopup="dialog">
+        <button type="button" onClick={() => openSheet('coach', 'now')} data-testid="open-coach" className="btn inline-flex items-center justify-center gap-2 rounded-full bg-ink-900 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-ink-700" aria-haspopup="dialog">
           <LifeBuoy aria-hidden="true" className="size-5" /> 코치{coach.now.length > 0 && <span className="tnum ml-0.5 rounded-full bg-accent-600 px-1.5 text-[0.75rem]">{coach.now.length}</span>}
         </button>
       </div>

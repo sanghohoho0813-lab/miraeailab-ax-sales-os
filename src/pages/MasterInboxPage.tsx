@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Handoff } from '../types/domain'
-import { Badge, EmptyState, PageTitle, Spinner } from '../components/ui'
+import { Badge, EmptyState, PageTitle, SkeletonList } from '../components/ui'
 import { HANDOFF_STATUS_LABEL, INDUSTRY_LABEL, LEVEL_KO } from '../content/labels'
 import { getDataModeConfig } from '../data/dataMode'
 import { formatDate } from '../lib/util'
@@ -13,13 +13,13 @@ export default function MasterInboxPage() {
   const { user, repo } = useSession()
   const [list, setList] = useState<Handoff[] | null>(null)
   useEffect(() => {
-    document.title = '2차 제안 요청함 · AX 미팅 가이드'
+    document.title = '2차 제안 요청함 · AX Partner OS'
     repo.listHandoffs(user).then(setList)
   }, [repo, user])
-  if (!list) return <Spinner />
+  if (!list) return <SkeletonList rows={3} />
   const opsUrl = getDataModeConfig().opsOsUrl
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-[1100px] space-y-5">
       <PageTitle
         title="2차 제안 요청함"
         sub="파트너가 1차 미팅을 마치고 보낸 구조화 패킷. 운영 OS 이벤트함(customer_events)에도 같은 건이 등록됩니다."
@@ -34,10 +34,10 @@ export default function MasterInboxPage() {
       {list.length === 0 ? (
         <EmptyState title="아직 전달된 요청이 없습니다" />
       ) : (
-        <ul className="divide-y divide-line rounded-(--radius-card) border border-line bg-white">
+        <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white">
           {list.map((h) => (
             <li key={h.id}>
-              <Link to={`/handoffs/${h.id}`} className="tap flex flex-wrap items-center gap-3 px-4 py-4 hover:bg-paper-2">
+              <Link to={`/handoffs/${h.id}`} className="nav-item tap flex flex-wrap items-center gap-3 px-4 py-4 hover:bg-paper-2">
                 <span className="min-w-0 flex-1">
                   <span className="block text-[1.05rem] font-bold">{h.payload.company?.name}</span>
                   <span className="t-sub block text-ink-500">

@@ -236,17 +236,13 @@ export function SkeletonList({ rows = 3, lines = 2 }: { rows?: number; lines?: n
 
 /* ── 숫자 카운트업 (KPI) — 450~800ms, 1회 ───────────────── */
 export function useCountUp(target: number, duration = 600): number {
-  const [value, setValue] = useState(0)
+  const [value, setValue] = useState(() => (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? target : 0))
   useEffect(() => {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduce || target === 0) {
-      setValue(target)
-      return
-    }
     let raf = 0
     const start = performance.now()
     const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / duration)
+      const p = reduce ? 1 : Math.min(1, (t - start) / duration)
       const eased = 1 - Math.pow(1 - p, 3)
       setValue(Math.round(target * eased))
       if (p < 1) raf = requestAnimationFrame(tick)

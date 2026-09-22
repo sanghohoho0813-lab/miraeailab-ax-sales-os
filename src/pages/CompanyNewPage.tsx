@@ -279,11 +279,11 @@ export default function CompanyNewPage() {
           <ArrowLeft aria-hidden="true" className="size-4" /> 이전
         </Button>
         {last ? (
-          <Button type="submit" variant="primary" size="lg" disabled={busy} data-testid="company-save">
+          <Button key="save" type="submit" variant="primary" size="lg" disabled={busy} data-testid="company-save">
             {busy ? '저장 중…' : editing ? '저장하고 전략 보기' : '미팅 전략 만들기'}
           </Button>
         ) : (
-          <Button type="button" variant="primary" size="lg" onClick={next} data-testid="prep-next">
+          <Button key="next" type="button" variant="primary" size="lg" onClick={next} data-testid="prep-next">
             다음 <ArrowRight aria-hidden="true" className="size-4" />
           </Button>
         )}

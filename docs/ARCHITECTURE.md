@@ -61,7 +61,7 @@
 ## 6. 데이터 흐름 (끊기지 않는 한 줄)
 
 ```
-회사정보(클릭) → 사전전략(briefing) → 1차미팅(질문 5~10 · 클릭) → 유사사례(matcher) → AX 범위 가설(analysis A~D)
+회사정보(4단계 클릭) → 사전전략(briefing) → 1차미팅(Core 4~5 + Adaptive 2~4, 최대 9 · 사전진단 항목 건너뜀 · 세일즈 코치) → 유사사례(matcher: 업종·문제구조·B2B/B2C·전환방식·규모↔금액구간·자금유형, reviewRequired 제외) → AX 범위 가설(analysis A~D)
  → 미팅종료 → [김상호 대표에게 2차 제안 요청] → partner_handoffs + customer_events(ax_proposal_requested)
  → 운영 OS 이벤트함 → 고객사 연결 → 2차 Value Map · 맞춤 AX · 가격/정산 · 구축 · 실증 · 성장관리 (운영 OS)
 ```
@@ -71,3 +71,12 @@
 - `partner_meetings.answers/key_quote/memo` = 현장 원본. 분석은 `analysis`(버전 번호)에만 쓴다. "분석 다시 하기" 는 원본을 건드리지 않는다.
 - `partner_handoffs.payload` = 전달 시점 스냅샷(운영 OS 가 보는 것). 마스터 수정·최종 제안은 운영 OS 쪽 객체에 남는다.
 - `partner_meeting_events` = 건너뛴 질문 · 어려워한 질문 · 열어본 팁/사례 · 소요시간 · 전달 — V1 이후 10건 검증용.
+
+
+## UI 셸 · 테마 · Device View (2026-09 업그레이드)
+
+- `src/index.css` — 토큰. 테마가 바꾸는 값은 `--th-*` 변수이고 `@theme inline` 으로 Tailwind 유틸리티(`bg-accent-600`, `bg-side` …)에 연결된다. 기본 Pure White, 나머지 6개는 `[data-theme=…]`.
+- `src/lib/theme.tsx` · `src/lib/deviceView.tsx` · `src/lib/clock.ts` — 테마/Device View 는 localStorage 에 저장(브라우저별), 시계는 1초 틱(초 경계 정렬).
+- `src/components/AppShell.tsx` — 그룹 사이드바(WORK/KNOWLEDGE/SYSTEM/MASTER, 272px) · 글로벌 헤더(라우트 제목 · 실시간 시계 · Device View · 사용자) · 하단 내비 5 · LIVE 포커스 모드(레일만).
+- `src/components/DeviceFrame.tsx` — PC+Mobile 듀얼 뷰는 같은 앱을 390px iframe 으로 띄운다(`window.self !== window.top` 이면 프레임 모드 → 다시 프레임을 만들지 않음). 부모↔프레임 라우트는 postMessage 로 동기화하고 저장소(localStorage/Supabase 세션)는 같은 출처라 공유된다.
+- 실제 사례 DB — `src/content/research-cases.json`(리서치 PDF 파싱 결과) → `src/content/cases.ts` 에서 `CaseStudy` 로 조립(설명 포인트·주의는 `caseText.ts` 가 사실 필드에서만 생성). 저장소는 이 청크를 필요할 때만 동적 import 한다.

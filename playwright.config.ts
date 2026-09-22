@@ -25,9 +25,10 @@ export default defineConfig({
     env: { VITE_DATA_MODE: 'local' },
   },
   projects: [
+    { name: 'screens', testMatch: /screens\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     // 모바일·태블릿은 Chromium 기반 기기 설명자를 쓴다 (WebKit 은 이 환경에 없다)
-    { name: 'mobile', use: { ...devices['Pixel 7'] } },
-    { name: 'tablet', use: { ...devices['Galaxy Tab S4'] } },
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'mobile', testIgnore: /screens\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'tablet', testIgnore: /screens\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
+    { name: 'desktop', testIgnore: /screens\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
   ],
 })

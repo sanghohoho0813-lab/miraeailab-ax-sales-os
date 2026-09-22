@@ -91,7 +91,8 @@ export default function CompanyPage() {
   }
 
   const d = company.diagnosis
-  const recs = [rec.primary, rec.secondary].filter((m): m is NonNullable<typeof m> => Boolean(m))
+  const pinned = (company.pinnedCaseIds ?? []).map((id) => cases.find((c) => c.id === id)).filter((c): c is CaseStudy => Boolean(c))
+  const recs = [rec.primary, rec.secondary].filter((m): m is NonNullable<typeof m> => Boolean(m) && !pinned.some((p) => p.id === m!.caseStudy.id))
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-10">
@@ -219,13 +220,16 @@ export default function CompanyPage() {
       </div>
 
       {/* 추천 사례 */}
-      <FlatSection title="이 미팅에 쓸 실제 사례" sub="① 같은/가까운 업종 ② 업종은 달라도 문제구조가 비슷한 사례 — 리서치 원문 기반" action={<Link to="/cases" className="t-sub font-semibold text-accent-700 hover:underline">사례 더 찾기</Link>}>
-        {recs.length === 0 ? (
+      <FlatSection title="이 미팅에 쓸 실제 사례" sub="① 같은/가까운 업종 ② 업종은 달라도 문제구조가 비슷한 사례 — 리서치 원문 기반" action={<Link to={`/cases?company=${company.id}`} className="t-sub font-semibold text-accent-700 hover:underline">사례 더 찾기</Link>}>
+        {pinned.length + recs.length === 0 ? (
           <p className="rounded-(--radius-card) border border-dashed border-line-strong bg-white px-5 py-6 t-body text-ink-500">검수된 사례 중 맞는 것이 없습니다. 사례 탐색에서 직접 찾아보세요.</p>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
+            {pinned.map((c) => (
+              <CaseRow key={c.id} c={c} reason="📌 내가 고른 사례" to={`/cases/${c.id}?company=${company.id}`} onOpen={() => void repo.track(user, 'case_opened', null, { caseId: c.id, from: 'brief' })} />
+            ))}
             {recs.map((m) => (
-              <CaseRow key={m.caseStudy.id} c={m.caseStudy} reason={m.reasons.slice(0, 2).join(' · ')} onOpen={() => void repo.track(user, 'case_opened', null, { caseId: m.caseStudy.id, from: 'brief' })} />
+              <CaseRow key={m.caseStudy.id} c={m.caseStudy} reason={m.reasons.slice(0, 2).join(' · ')} to={`/cases/${m.caseStudy.id}?company=${company.id}`} onOpen={() => void repo.track(user, 'case_opened', null, { caseId: m.caseStudy.id, from: 'brief' })} />
             ))}
           </div>
         )}

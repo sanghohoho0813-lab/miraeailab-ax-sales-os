@@ -12,7 +12,9 @@
 2. **SQL 적용** — Supabase Dashboard → SQL Editor 에서 순서대로 (둘 다 멱등):
    1. `supabase/migrations/20260922000001_partner_os.sql`
    2. `supabase/migrations/20260922000002_partner_os_bridge.sql`
-3. **사례 시드 (선택)** — 마스터가 Partner OS 사례 화면에서 추가하거나, 코드 시드(`src/content/cases.ts`)를 그대로 쓴다(DB 가 비어 있으면 앱이 코드 시드를 읽기 전용으로 보여 준다).
+   3. `supabase/migrations/20260922000003_partner_cases_research_seed.sql` — 리서치 PDF 기반 실제 사례 371건(검수 완료 291 · 검수 필요 80). 이미 있는 id 는 건드리지 않는다.
+   4. `supabase/migrations/20260922000004_partner_companies_pinned_cases.sql` — 업체별 "미팅에 사용할 사례" 컬럼
+3. **사례 검수** — 마스터가 실제 사례 화면에서 `검수 필요` 행을 열어 검수 후 `검수 완료` 로 바꾸면 파트너 기본 추천에 들어간다. DB 가 비어 있으면 앱이 코드 시드(`src/content/research-cases.json`)를 읽기 전용으로 보여 준다.
 4. **Partner OS 배포 (Vercel)** — 새 프로젝트, 환경변수:
    ```
    VITE_DATA_MODE=supabase
