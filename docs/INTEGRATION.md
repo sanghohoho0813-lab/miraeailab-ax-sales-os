@@ -62,3 +62,18 @@ partner_submit_handoff(p_meeting_id, p_payload, p_customer_safe)
 ## 5. 홈페이지가 알아야 하는 것
 
 없음. 홈페이지 코드·스키마 변경 0. Partner OS 는 홈페이지 리드를 RPC 로만 읽는다(개인정보는 반환하지 않음). 마스터가 특정 파트너에게 리드를 배정하려면 홈페이지 관리자 화면이 이미 갖고 있는 `business_diagnosis_leads.assigned_to` 를 파트너 `auth.users.id` 로 채우면 된다(회사명 일치 시 연락처 없이도 연결).
+
+
+## 전달 요청 철회 · 재전달 · 삭제 계약 (0005)
+
+| Partner OS 동작 | partner_handoffs | customer_events (운영 OS) | 미팅 |
+|---|---|---|---|
+| `partner_withdraw_handoff(id, reason)` | status `withdrawn`, `withdrawn_at`, `withdraw_reason` | 같은 이벤트 status `ignored`, `handled_at`, payload `+ {withdrawn:true, withdrawn_at, withdraw_reason}` | `submitted → analyzed` |
+| 철회 후 `partner_submit_handoff` (재전달) | status `received`, `withdrawn_at` null, `submitted_at` 갱신 | **같은 이벤트**를 `new` 로 다시 연다 (`occurred_at` 갱신, payload `+ {resubmitted:true}`, withdrawn 키 제거). 새 이벤트를 만들지 않는다 | `analyzed → submitted` |
+| 운영 OS 가 이벤트를 `ignored` 로 | 트리거가 status `withdrawn` (`withdraw_reason` = '운영 OS 에서 보류') | — | `submitted → analyzed` |
+| 운영 OS 가 이벤트를 `new` 로 다시 | 트리거가 `received` | — | `analyzed → submitted` |
+| `proposal_ready` 요청 철회 시도 | 거부 (P0001) — 보관(`archived_at`)만 가능 | — | — |
+| `partner_delete_company_safe` | 활성 요청(submitted/received/reviewing/proposal_ready)이 하나라도 있으면 거부. 철회된 요청만 있으면 **마스터만** 삭제 가능 | 삭제 전 연결된 이벤트를 `ignored` + payload `+ {partner_record_deleted:true}` 로 남긴다 | cascade |
+| `partner_delete_meeting` | — | 전달 이력(customer_event_id)이 있으면 거부 | draft/cancelled 삭제, live 는 취소 후, analyzed 는 마스터만, submitted 거부 |
+
+원칙: Partner OS 와 운영 OS 는 같은 이벤트 1건을 공유하고 상태만 서로 맞춘다. 어느 쪽에서 바꿔도 다른 쪽이 따라온다(계약 테스트 T9). 직접 `delete()` / 직접 상태 update 는 하지 않는다 — RPC 와 트리거만.

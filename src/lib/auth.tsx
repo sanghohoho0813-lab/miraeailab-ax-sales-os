@@ -12,7 +12,7 @@ import type { Session } from '@supabase/supabase-js'
 import type { CurrentUser, PartnerRole } from '../types/domain'
 import { getDataModeConfig } from '../data/dataMode'
 import type { Repository } from '../data/repository'
-import { LocalRepository } from '../data/localRepository'
+import { LocalRepository, readLocalMember } from '../data/localRepository'
 
 export type AuthStatus = 'loading' | 'config_error' | 'signed_out' | 'no_access' | 'ready'
 
@@ -26,6 +26,8 @@ interface AuthValue {
   signOut: () => Promise<void>
   /** local 모드 전용 — 역할 선택 로그인 */
   signInLocal: (role: PartnerRole) => void
+  /** 파트너 정보(이름·호칭)를 다시 읽는다 — 마스터가 바꾼 뒤 */
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -34,6 +36,13 @@ const LOCAL_ROLE_KEY = 'axpartner.local_role'
 const LOCAL_USERS: Record<PartnerRole, CurrentUser> = {
   partner: { id: 'local-partner', email: 'partner@example.com', name: '곽주환', role: 'partner', title: '팀장' },
   master: { id: 'local-master', email: 'sanghohoho0813@gmail.com', name: '김상호', role: 'master', title: '대표' },
+}
+
+/** local 모드: partner_members 흉내(localStorage)가 프로필 원천 */
+function localUser(role: PartnerRole): CurrentUser {
+  const base = LOCAL_USERS[role]
+  const m = readLocalMember(base.id)
+  return m ? { ...base, name: m.displayName || base.name, title: m.title ?? base.title } : base
 }
 
 function readLocalRole(): PartnerRole | null {
@@ -57,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const cfg = getDataModeConfig()
   const isLocal = cfg.mode === 'local'
   const [status, setStatus] = useState<AuthStatus>(() => (cfg.configError ? 'config_error' : isLocal ? (readLocalRole() ? 'ready' : 'signed_out') : 'loading'))
-  const [user, setUser] = useState<CurrentUser | null>(() => (isLocal ? (readLocalRole() ? LOCAL_USERS[readLocalRole()!] : null) : null))
+  const [user, setUser] = useState<CurrentUser | null>(() => (isLocal ? (readLocalRole() ? localUser(readLocalRole()!) : null) : null))
   const [repo, setRepo] = useState<Repository>(() => new LocalRepository())
 
   // supabase 모드 부트스트랩
@@ -86,15 +95,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setStatus('no_access')
           return
         }
+        // Partner OS 안의 이름·호칭은 partner_members 가 원천(0005 partner_current_profile). 없으면 auth metadata → profiles 순으로 보조.
         const meta = (session.user.user_metadata ?? {}) as { name?: string; full_name?: string }
-        let name = meta.name ?? meta.full_name ?? ''
+        let name = ''
+        let title = ''
         try {
-          const { data: p } = await client.from('profiles').select('name').eq('id', session.user.id).maybeSingle()
-          if (p && typeof (p as { name?: unknown }).name === 'string') name = (p as { name: string }).name
+          const { data: prof } = await client.rpc('partner_current_profile')
+          const pr = (prof ?? null) as { display_name?: string; title?: string } | null
+          if (pr) {
+            name = pr.display_name ?? ''
+            title = pr.title ?? ''
+          }
         } catch {
-          /* profiles 미조회 환경 */
+          /* 0005 미적용 환경 */
         }
-        setUser({ id: session.user.id, email: session.user.email ?? '', name: name || (session.user.email ?? '').split('@')[0], role })
+        if (!name) name = meta.name ?? meta.full_name ?? ''
+        if (!name) {
+          try {
+            const { data: p } = await client.from('profiles').select('name').eq('id', session.user.id).maybeSingle()
+            if (p && typeof (p as { name?: unknown }).name === 'string') name = (p as { name: string }).name
+          } catch {
+            /* profiles 미조회 환경 */
+          }
+        }
+        setUser({ id: session.user.id, email: session.user.email ?? '', name: name || (session.user.email ?? '').split('@')[0], role, title })
         setStatus('ready')
       }
       const { data } = await client.auth.getSession()
@@ -143,15 +167,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         /* noop */
       }
-      setUser(LOCAL_USERS[role])
+      setUser(localUser(role))
       setStatus('ready')
     },
     [isLocal],
   )
 
+  const refreshProfile = useCallback(async () => {
+    if (!user) return
+    if (isLocal) {
+      setUser(localUser(user.role))
+      return
+    }
+    const { getSupabaseClient } = await import('../data/supabaseClient')
+    const { data } = await getSupabaseClient().rpc('partner_current_profile')
+    const pr = (data ?? null) as { display_name?: string; title?: string } | null
+    if (pr) setUser({ ...user, name: pr.display_name || user.name, title: pr.title ?? '' })
+  }, [isLocal, user])
+
   const value = useMemo<AuthValue>(
-    () => ({ status, mode: cfg.mode, configError: cfg.configError, user, repo, signIn, signOut, signInLocal }),
-    [status, cfg.mode, cfg.configError, user, repo, signIn, signOut, signInLocal],
+    () => ({ status, mode: cfg.mode, configError: cfg.configError, user, repo, signIn, signOut, signInLocal, refreshProfile }),
+    [status, cfg.mode, cfg.configError, user, repo, signIn, signOut, signInLocal, refreshProfile],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

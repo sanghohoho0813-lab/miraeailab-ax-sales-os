@@ -3,12 +3,12 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Company, Meeting } from '../types/domain'
 import { HANDOFF_STATUS_LABEL, INDUSTRY_LABEL, HEADCOUNT_LABEL } from '../content/labels'
 import { formatDate, relativeDay } from '../lib/util'
-import { Badge, Button, EmptyState, FlatSection, PageTitle, SkeletonList } from '../components/ui'
+import { Badge, Button, DangerModal, EmptyState, FlatSection, PageTitle, SkeletonList, useToast } from '../components/ui'
 
 type Row = { company: Company; meeting: Meeting | null }
 type Bucket = 'today' | 'upcoming' | 'active' | 'done' | 'undated'
@@ -36,6 +36,7 @@ const BUCKET_LABEL: Record<Bucket, { title: string; sub: string }> = {
 function statusOf(r: Row): { label: string; tone: 'neutral' | 'accent' | 'ok' | 'info' | 'warn' } {
   const m = r.meeting
   if (!m) return { label: '준비', tone: 'neutral' }
+  if (m.status === 'cancelled') return { label: '취소됨', tone: 'warn' }
   if (m.status === 'live') return { label: '진행 중', tone: 'accent' }
   if (m.status === 'analyzed') return { label: '분석 완료', tone: 'info' }
   if (m.status === 'submitted') return { label: HANDOFF_STATUS_LABEL.submitted ?? '전달 완료', tone: 'ok' }
@@ -52,7 +53,24 @@ function actionOf(r: Row): { to: string; label: string; primary: boolean } {
 
 export default function MeetingsPage() {
   const { user, repo } = useSession()
+  const toast = useToast()
   const [rows, setRows] = useState<Row[] | null>(null)
+  const [del, setDel] = useState<Row | null>(null)
+  const [busy, setBusy] = useState(false)
+  async function deleteDraft() {
+    if (!del?.meeting) return
+    setBusy(true)
+    try {
+      await repo.deleteMeeting(user, del.meeting.id)
+      setRows((cur) => (cur ?? []).map((r) => (r.company.id === del.company.id ? { ...r, meeting: null } : r)))
+      toast.show('미팅 초안을 삭제했습니다.', 'ok')
+      setDel(null)
+    } catch (cause) {
+      toast.show(cause instanceof Error ? cause.message : '삭제하지 못했습니다.', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     document.title = '미팅 · AX Partner OS'
     let alive = true
@@ -128,6 +146,11 @@ export default function MeetingsPage() {
                         </p>
                       </div>
                       <Badge tone={st.tone}>{st.label}</Badge>
+                      {r.meeting && (r.meeting.status === 'draft' || r.meeting.status === 'cancelled') && (
+                        <button type="button" onClick={() => setDel(r)} className="nav-item inline-flex size-9 items-center justify-center rounded-(--radius-control) text-ink-300 hover:bg-paper-2 hover:text-danger-700" aria-label="미팅 초안 삭제" data-testid="delete-draft">
+                          <Trash2 aria-hidden="true" className="size-4" />
+                        </button>
+                      )}
                       <Link to={act.to} className="shrink-0">
                         <Button variant={act.primary ? 'primary' : 'secondary'} size="sm">
                           {act.label}
@@ -139,6 +162,17 @@ export default function MeetingsPage() {
               </ul>
             </FlatSection>
           ))}
+      <DangerModal
+        open={Boolean(del)}
+        onClose={() => setDel(null)}
+        title="미팅 초안을 삭제할까요?"
+        impact={del ? [`${del.company.name} · ${del.meeting ? formatDate(del.meeting.createdAt, true) : ''}`] : []}
+        recoverable="이 작업은 되돌릴 수 없습니다. 고객 정보는 남고 미팅 기록만 지워집니다."
+        confirmLabel="삭제"
+        onConfirm={deleteDraft}
+        busy={busy}
+        testId="delete-draft-modal"
+      />
     </div>
   )
 }

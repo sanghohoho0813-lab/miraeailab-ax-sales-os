@@ -126,6 +126,7 @@ export const HANDOFF_STATUS_LABEL: Record<string, string> = {
   received: '검토중',
   reviewing: '2차 제안 준비중',
   proposal_ready: '제안 준비완료',
+  withdrawn: '철회됨',
 }
 
 export const MEETING_STATUS_LABEL: Record<string, string> = {
@@ -133,6 +134,7 @@ export const MEETING_STATUS_LABEL: Record<string, string> = {
   live: '미팅 중',
   analyzed: '분석 완료',
   submitted: '전달 완료',
+  cancelled: '취소됨',
 }
 
 /** 홈페이지 3분 AX Fit 문항 라벨 — 사전진단 표시용 (homepage/src/data/businessDiagnosisQuestions.ts 와 동일 키) */

@@ -9,7 +9,7 @@ import { useSession } from '../lib/auth'
 import type { CaseStudy, Company } from '../types/domain'
 import { AccentStrip, Badge, Button, Disclosure, FlatSection, SkeletonList, useToast } from '../components/ui'
 import { AREA_LABEL, FUNDING_TYPE_LABEL, INDUSTRY_LABEL } from '../content/labels'
-import { AX_GRADE_LABEL, CASE_DISCLAIMER, TRANSITION_PATH, caseSimilarityTags, formatEok } from '../content/caseText'
+import { AX_GRADE_LABEL, CASE_DISCLAIMER, TRANSITION_PATH, caseSimilarityTags, formatEok, needsSourceRecheck } from '../content/caseText'
 import { scoreCase } from '../engine/caseMatcher'
 import { planQuestions } from '../engine/questionSelector'
 
@@ -111,6 +111,7 @@ export default function CaseDetailPage() {
           {c.axGrade && <Badge tone="info">{AX_GRADE_LABEL[c.axGrade]}</Badge>}
           {c.newlyVerified && <Badge tone="info">신규 검증</Badge>}
           <Badge tone={c.verificationStatus === 'verified' ? 'ok' : 'warn'}>{c.verificationStatus === 'verified' ? '검수 완료' : '검수 필요'}</Badge>
+          {c.verificationStatus === 'verified' && needsSourceRecheck(c) && <Badge tone="warn">출처 재확인 권장 · 제도 조건은 바뀔 수 있습니다</Badge>}
         </div>
         <h1 className="t-page mt-3" data-testid="case-title">
           {c.companyName}

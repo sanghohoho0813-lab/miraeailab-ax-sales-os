@@ -184,16 +184,20 @@ export function Spinner({ label = '불러오는 중…' }: { label?: string }) {
 }
 
 /* ── 토스트 ───────────────────────────────────────────────── */
+interface ToastAction {
+  label: string
+  onClick: () => void | Promise<void>
+}
 interface ToastCtx {
-  show: (message: string, tone?: 'ok' | 'danger' | 'neutral') => void
+  show: (message: string, tone?: 'ok' | 'danger' | 'neutral', action?: ToastAction) => void
 }
 const ToastContext = createContext<ToastCtx | null>(null)
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<{ id: number; message: string; tone: 'ok' | 'danger' | 'neutral' } | null>(null)
-  const show = useCallback((message: string, tone: 'ok' | 'danger' | 'neutral' = 'neutral') => {
+  const [toast, setToast] = useState<{ id: number; message: string; tone: 'ok' | 'danger' | 'neutral'; action?: ToastAction } | null>(null)
+  const show = useCallback((message: string, tone: 'ok' | 'danger' | 'neutral' = 'neutral', action?: ToastAction) => {
     const id = Date.now()
-    setToast({ id, message, tone })
-    window.setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 3500)
+    setToast({ id, message, tone, action })
+    window.setTimeout(() => setToast((t) => (t?.id === id ? null : t)), action ? 8000 : 3500)
   }, [])
   const value = useMemo(() => ({ show }), [show])
   return (
@@ -201,8 +205,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {toast && (
         <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 lg:bottom-8">
-          <div className={`rise rounded-(--radius-control) px-4 py-3 text-[1rem] font-semibold shadow-(--shadow-float) ${toast.tone === 'ok' ? 'bg-ok-700 text-white' : toast.tone === 'danger' ? 'bg-danger-700 text-white' : 'bg-ink-900 text-white'}`}>
-            {toast.message}
+          <div className={`rise pointer-events-auto flex items-center gap-3 rounded-(--radius-control) px-4 py-3 text-[1rem] font-semibold shadow-(--shadow-float) ${toast.tone === 'ok' ? 'bg-ok-700 text-white' : toast.tone === 'danger' ? 'bg-danger-700 text-white' : 'bg-ink-900 text-white'}`} data-testid="toast">
+            <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  void toast.action?.onClick()
+                  setToast(null)
+                }}
+                className="btn rounded-full bg-white/15 px-3 py-1 text-[0.95rem] font-bold text-white hover:bg-white/25"
+                data-testid="toast-action"
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -342,5 +359,105 @@ export function Insight({ children }: { children: ReactNode }) {
     <blockquote className="rounded-(--radius-card) bg-ink-900 px-5 py-4 text-white">
       <p className="text-[1.1rem] font-semibold leading-relaxed">{children}</p>
     </blockquote>
+  )
+}
+
+/* ── 위험 작업 모달 — window.confirm 금지. 영향 범위 · 복구 가능 여부 · (필요 시) 이름 입력 확인 ── */
+export function DangerModal({
+  open,
+  onClose,
+  title,
+  impact,
+  recoverable,
+  confirmLabel,
+  typedConfirm,
+  onConfirm,
+  busy = false,
+  tone = 'danger',
+  confirmDisabled = false,
+  children,
+  testId,
+}: {
+  open: boolean
+  onClose: () => void
+  title: string
+  /** 무엇이 영향을 받는가 */
+  impact: string[]
+  /** 복구 가능 여부 문장 */
+  recoverable: string
+  confirmLabel: string
+  /** 있으면 이 문자열을 그대로 입력해야 버튼이 활성화된다 (2단계 검증) */
+  typedConfirm?: string
+  onConfirm: () => void | Promise<void>
+  busy?: boolean
+  tone?: 'danger' | 'warn'
+  /** DB 가 거부할 작업이면 버튼 자체를 막는다 (이유는 recoverable 에) */
+  confirmDisabled?: boolean
+  children?: ReactNode
+  testId?: string
+}) {
+  const [typed, setTyped] = useState('')
+  const close = () => {
+    setTyped('')
+    onClose()
+  }
+  const norm = (s: string) => s.replace(/\s/g, '')
+  const ok = !typedConfirm || norm(typed) === norm(typedConfirm)
+  return (
+    <Sheet open={open} onClose={close} title={title} testId={testId}>
+      <div className="space-y-4">
+        {impact.length > 0 && (
+          <div className={`rounded-r-(--radius-control) border-l-4 px-4 py-3 ${tone === 'danger' ? 'border-danger-600 bg-danger-50' : 'border-warn-600 bg-warn-50'}`}>
+            <p className="t-meta font-black tracking-wide text-ink-500">함께 영향을 받는 것</p>
+            <ul className="t-body mt-1 list-disc space-y-0.5 pl-5">
+              {impact.map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <p className={`t-body font-semibold ${tone === 'danger' ? 'text-danger-700' : 'text-ink-900'}`}>{recoverable}</p>
+        {children}
+        {typedConfirm && (
+          <label className="block">
+            <span className="t-sub mb-1.5 block font-bold text-ink-700">
+              확인을 위해 <span className="rounded bg-paper-2 px-1.5 py-0.5 font-black text-ink-900">{typedConfirm}</span> 을(를) 입력하세요
+            </span>
+            <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={typedConfirm} autoComplete="off" data-testid="danger-typed" />
+          </label>
+        )}
+        <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+          <Button onClick={close} disabled={busy}>
+            취소
+          </Button>
+          <Button
+            variant={tone === 'danger' ? 'danger' : 'dark'}
+            onClick={() => {
+              setTyped('')
+              void onConfirm()
+            }}
+            disabled={!ok || busy || confirmDisabled}
+            data-testid="danger-confirm"
+          >
+            {busy ? '처리 중…' : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}
+
+/* ── 저장 상태 표시 ────────────────────────────────────────── */
+export function SaveStatusPill({ status, pending }: { status: 'saved' | 'saving' | 'offline' | 'error'; pending: boolean }) {
+  const map = {
+    saved: { label: '저장됨 ✓', cls: 'bg-ok-50 text-ok-700' },
+    saving: { label: '저장 중…', cls: 'bg-paper-2 text-ink-700' },
+    offline: { label: '끊김 · 임시저장됨', cls: 'bg-warn-50 text-warn-700' },
+    error: { label: pending ? '대기 · 임시저장됨' : '저장 실패', cls: 'bg-warn-50 text-warn-700' },
+  }[status]
+  return (
+    <span role="status" aria-live="polite" data-testid="save-status" data-status={status} className={`tnum inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 t-meta font-bold ${map.cls}`}>
+      {map.label}
+    </span>
   )
 }

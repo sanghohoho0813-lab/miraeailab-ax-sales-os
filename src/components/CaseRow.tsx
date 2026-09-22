@@ -4,7 +4,7 @@
 import { Link } from 'react-router-dom'
 import type { CaseStudy } from '../types/domain'
 import { FUNDING_TYPE_LABEL } from '../content/labels'
-import { formatEok } from '../content/caseText'
+import { formatEok, needsSourceRecheck } from '../content/caseText'
 import { Badge } from './ui'
 
 export function CaseRow({ c, reason, onOpen, ctaLabel = '사례 보기', to }: { c: CaseStudy; reason?: string; onOpen?: () => void; ctaLabel?: string; to?: string }) {
@@ -17,6 +17,7 @@ export function CaseRow({ c, reason, onOpen, ctaLabel = '사례 보기', to }: {
         <span className="t-meta text-ink-500">{c.subIndustry || c.researchSection}</span>
         {c.newlyVerified && <Badge tone="info">신규 검증</Badge>}
         {c.reviewRequired && <Badge tone="warn">검수 필요</Badge>}
+        {!c.reviewRequired && needsSourceRecheck(c) && <Badge tone="warn">출처 재확인 권장</Badge>}
       </div>
       {reason && <p className="t-meta mt-1.5 font-semibold text-accent-800">{reason}</p>}
       <dl className="mt-3 space-y-1.5">

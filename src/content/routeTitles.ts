@@ -6,6 +6,7 @@ const RULES: { test: RegExp; title: string }[] = [
   { test: /^\/meetings\/[^/]+\/report/, title: '미팅 리포트' },
   { test: /^\/meetings/, title: '미팅' },
   { test: /^\/companies\/new/, title: '미팅 준비' },
+  { test: /^\/companies\/trash/, title: '고객 휴지통' },
   { test: /^\/companies\/[^/]+\/edit/, title: '고객 정보 수정' },
   { test: /^\/companies\/[^/]+/, title: '미팅 전략' },
   { test: /^\/companies/, title: '고객' },
@@ -18,7 +19,10 @@ const RULES: { test: RegExp; title: string }[] = [
   { test: /^\/more/, title: '더보기' },
   { test: /^\/settings/, title: '설정' },
   { test: /^\/master\/inbox/, title: '2차 제안 요청함' },
+  { test: /^\/master\/partners\/[^/]+/, title: '파트너 상세' },
   { test: /^\/master\/partners/, title: '파트너 관리' },
+  { test: /^\/master\/audit/, title: '변경 기록' },
+  { test: /^\/master\/usage/, title: '사용 데이터' },
 ]
 export function routeTitle(pathname: string): string {
   return RULES.find((r) => r.test.test(pathname))?.title ?? 'AX Partner OS'

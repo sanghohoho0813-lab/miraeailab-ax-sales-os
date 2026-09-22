@@ -14,6 +14,7 @@
    2. `supabase/migrations/20260922000002_partner_os_bridge.sql`
    3. `supabase/migrations/20260922000003_partner_cases_research_seed.sql` — 리서치 PDF 기반 실제 사례 371건(검수 완료 291 · 검수 필요 80). 이미 있는 id 는 건드리지 않는다.
    4. `supabase/migrations/20260922000004_partner_companies_pinned_cases.sql` — 업체별 "미팅에 사용할 사례" 컬럼
+   5. `supabase/migrations/20260922000005_partner_ops_hardening.sql` — 운영 안정화: 고객 휴지통/복구/안전 영구삭제 RPC(직접 DELETE 는 RLS 로 차단), 전달 요청 철회↔운영 OS ignored 양방향, 미팅 취소/삭제 규칙, 파트너 호칭·수정 RPC·마지막 마스터 보호 트리거, 담당 재배정(assigned_to), 감사 로그(partner_audit_events), 사례 검수 RPC·last_verified_at. **운영 OS 패치 브랜치(`claude/partner-os-handoff-v1`)의 `withdrawn` 라벨 커밋을 먼저 배포한다.**
 3. **사례 검수** — 마스터가 실제 사례 화면에서 `검수 필요` 행을 열어 검수 후 `검수 완료` 로 바꾸면 파트너 기본 추천에 들어간다. DB 가 비어 있으면 앱이 코드 시드(`src/content/research-cases.json`)를 읽기 전용으로 보여 준다.
 4. **Partner OS 배포 (Vercel)** — 새 프로젝트, 환경변수:
    ```

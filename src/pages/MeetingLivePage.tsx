@@ -8,7 +8,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, LifeBuoy, Mic, MicOff, SkipForward, Quote, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, Meeting } from '../types/domain'
-import { Badge, Button, ChoiceGrid, Sheet, SkeletonList, TextArea, useToast } from '../components/ui'
+import { Badge, Button, ChoiceGrid, SaveStatusPill, Sheet, SkeletonList, TextArea, useToast } from '../components/ui'
+import { SaveQueue, clearDraft, readDraft, type SaveStatus } from '../lib/saveQueue'
 import { QUESTION_BY_ID } from '../content/questions'
 import { PRICING_GUIDE, DEFERRED_GUIDE, FUNDING_GUIDE } from '../content/pricing'
 import { guardText } from '../content/forbidden'
@@ -40,11 +41,47 @@ export default function MeetingLivePage() {
   const [listening, setListening] = useState(false)
   const [ending, setEnding] = useState(false)
   const recRef = useRef<SpeechRecognitionLike | null>(null)
-  const saveTimer = useRef<number | null>(null)
   const meetingRef = useRef<Meeting | null>(null)
+  const queueRef = useRef<SaveQueue<Meeting> | null>(null)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
+  const [savePending, setSavePending] = useState(false)
   useEffect(() => {
     meetingRef.current = meeting
   }, [meeting])
+
+  // 직렬 저장기 — 빠르게 눌러도 마지막 상태가 남고, 실패하면 기기에 임시 저장 + online 복귀 시 재시도
+  useEffect(() => {
+    if (!meetingId) return
+    const q = new SaveQueue<Meeting>({
+      draftKey: `axpartner.draft.meeting.${meetingId}`,
+      save: async (m) => {
+        await repo.updateMeeting(user, m)
+      },
+      onStatus: (st, info) => {
+        setSaveStatus(st)
+        setSavePending(info.pending)
+      },
+    })
+    queueRef.current = q
+    return () => {
+      void q.flush()
+      q.dispose()
+      queueRef.current = null
+    }
+  }, [meetingId, repo, user])
+
+  // 저장 대기 중에 나가면 경고 — 임시 저장본은 이미 기기에 있다
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const q = queueRef.current
+      if (q && q.pending) {
+        void q.flush()
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   useEffect(() => {
     if (!meetingId) return
@@ -57,7 +94,13 @@ export default function MeetingLivePage() {
       setCases(cs)
       setCompany(c)
       let cur = m
-      if (m.status === 'draft') {
+      // 기기 임시 저장본이 서버보다 새로우면(끊긴 채 답했던 경우) 그것을 살려서 다시 저장한다
+      const draft = readDraft<Meeting>(`axpartner.draft.meeting.${m.id}`)
+      if (draft && !draft.synced && draft.state.id === m.id && draft.savedAt > (m.updatedAt ?? '') && m.status !== 'submitted') {
+        cur = { ...draft.state, status: draft.state.status === 'draft' ? 'live' : draft.state.status }
+        toast.show('기기에 임시 저장된 답변을 복구했습니다. 다시 저장합니다.', 'ok')
+        queueRef.current?.push(cur)
+      } else if (m.status === 'draft') {
         cur = await repo.updateMeeting(user, { ...m, status: 'live', startedAt: nowIso() })
         void repo.track(user, 'meeting_started', m.id, { questionCount: m.questionIds.length })
       }
@@ -70,7 +113,7 @@ export default function MeetingLivePage() {
     return () => {
       alive = false
     }
-  }, [meetingId, repo, user])
+  }, [meetingId, repo, user, toast])
 
   /** LIVE 에서 실제로 묻는 질문 — 사전진단으로 채워진 것은 제외 */
   const liveIds = useMemo(() => (meeting ? meeting.questionIds.filter((qid) => meeting.answers[qid]?.source !== 'diagnosis') : []), [meeting])
@@ -82,16 +125,10 @@ export default function MeetingLivePage() {
   const answer = qid && meeting ? meeting.answers[qid] : undefined
   const coach = useMemo(() => (meeting ? coachFor(meeting.answers, qid) : { now: [], common: [] }), [meeting, qid])
 
-  const persist = useCallback(
-    (next: Meeting) => {
-      setMeeting(next)
-      if (saveTimer.current) window.clearTimeout(saveTimer.current)
-      saveTimer.current = window.setTimeout(() => {
-        repo.updateMeeting(user, next).catch(() => toast.show('저장하지 못했습니다. 연결을 확인해 주세요.', 'danger'))
-      }, 250)
-    },
-    [repo, user, toast],
-  )
+  const persist = useCallback((next: Meeting) => {
+    setMeeting(next)
+    queueRef.current?.push(next)
+  }, [])
 
   function setAnswer(targetId: string, value: string) {
     if (!meeting) return
@@ -158,10 +195,16 @@ export default function MeetingLivePage() {
     if (!meeting.keyQuote.trim()) return toast.show('대표가 직접 한 중요한 말을 한 줄이라도 적어 주세요.', 'danger')
     setEnding(true)
     try {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current)
+      // 대기 중인 저장을 먼저 밀어 넣는다 — 안 되면 마무리도 하지 않는다
+      const flushed = await queueRef.current?.flush()
+      if (flushed === false) {
+        toast.show('아직 저장되지 않은 답변이 있습니다. 연결을 확인한 뒤 다시 눌러 주세요. (기기에 임시 저장됨)', 'danger')
+        return
+      }
       const ended: Meeting = { ...meeting, endedAt: meeting.endedAt ?? nowIso() }
       const analysis = analyzeMeeting(company, ended, cases)
       const saved = await repo.updateMeeting(user, { ...ended, status: 'analyzed', analysis })
+      clearDraft(`axpartner.draft.meeting.${meeting.id}`)
       void repo.track(user, 'meeting_ended', saved.id, { answered: Object.keys(saved.answers).length, skipped: saved.skippedQuestionIds.length, hard: saved.hardQuestionIds.length })
       void repo.track(user, 'analysis_generated', saved.id, { version: analysis.version, scope: analysis.scopeLevel })
       navigate(`/meetings/${saved.id}/result`, { replace: true })
@@ -198,6 +241,9 @@ export default function MeetingLivePage() {
               {isFinal ? '마무리' : `${index + 1} / ${total}`}
             </span>
           </div>
+          <span className="shrink-0">
+            <SaveStatusPill status={saveStatus} pending={savePending} />
+          </span>
         </div>
         <div className="h-1 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
           <div className="h-full bg-accent-600 transition-[width] duration-300 ease-out" style={{ width: `${progress}%` }} />

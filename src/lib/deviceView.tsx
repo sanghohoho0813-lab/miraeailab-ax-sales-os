@@ -1,7 +1,8 @@
 /**
  * Device View — [PC] [Mobile] [PC+Mobile]. 데스크톱(≥1024px)에서만 의미가 있다.
- * Mobile / PC+Mobile 은 같은 라우트·같은 데이터를 390px 실제 폰 프레임(iframe)으로 보여 준다.
- * 프레임 안에서는 다시 프레임을 만들지 않는다(IS_FRAME).
+ * Mobile / PC+Mobile 은 같은 라우트·같은 데이터를 "진짜 가상 뷰포트"(iframe: PC 1280px · Mobile 390px)로 보여 주고
+ * 부모 화면 크기에 맞춰 scale 한다 — 미리보기가 작아져도 레이아웃 자체는 찌그러지지 않는다.
+ * PC+Mobile 은 1440px 이상에서만 허용한다(억지로 압축하지 않는다). 프레임 안에서는 다시 프레임을 만들지 않는다(IS_FRAME).
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
@@ -9,8 +10,11 @@ export type DeviceView = 'pc' | 'mobile' | 'dual'
 export const DEVICE_VIEWS: { id: DeviceView; label: string; hint: string }[] = [
   { id: 'pc', label: 'PC', hint: '데스크톱 화면만' },
   { id: 'mobile', label: 'Mobile', hint: '390px 폰 프레임만' },
-  { id: 'dual', label: 'PC+Mobile', hint: '같은 화면을 PC 와 폰으로 동시에' },
+  { id: 'dual', label: 'PC+Mobile', hint: '같은 화면을 PC(1280px)와 폰(390px)으로 동시에 — 1440px 이상' },
 ]
+export const DUAL_MIN_WIDTH = 1440
+export const VIRTUAL_PC_WIDTH = 1280
+export const VIRTUAL_MOBILE_WIDTH = 390
 
 /** 폰 프레임(iframe) 안에서 실행 중인가 — 재귀 프리뷰 금지 */
 export const IS_FRAME = typeof window !== 'undefined' && window.self !== window.top
@@ -27,21 +31,24 @@ function readView(): DeviceView {
 
 interface Ctx {
   view: DeviceView
+  /** 실제로 적용되는 뷰 (dual 인데 화면이 좁으면 pc 로 fallback) */
+  effectiveView: DeviceView
   setView: (v: DeviceView) => void
-  /** 실제로 프레임 UI 를 그릴 수 있는가 (데스크톱 + 프레임 안이 아님) */
   isDesktop: boolean
   isFrame: boolean
+  /** PC+Mobile 을 쓸 수 있는 폭인가 (≥1440) */
+  dualAllowed: boolean
+  width: number
 }
 const DeviceCtx = createContext<Ctx | null>(null)
 
 export function DeviceViewProvider({ children }: { children: ReactNode }) {
   const [view, setViewState] = useState<DeviceView>(IS_FRAME ? 'pc' : readView)
-  const [isDesktop, setDesktop] = useState(() => (typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true))
+  const [width, setWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1440))
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)')
-    const on = () => setDesktop(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
+    const on = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
   }, [])
   const setView = useCallback((v: DeviceView) => {
     setViewState(v)
@@ -51,7 +58,10 @@ export function DeviceViewProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, [])
-  const value = useMemo(() => ({ view, setView, isDesktop, isFrame: IS_FRAME }), [view, setView, isDesktop])
+  const isDesktop = width >= 1024
+  const dualAllowed = width >= DUAL_MIN_WIDTH
+  const effectiveView: DeviceView = IS_FRAME ? 'pc' : !isDesktop ? 'pc' : view === 'dual' && !dualAllowed ? 'pc' : view
+  const value = useMemo(() => ({ view, effectiveView, setView, isDesktop, isFrame: IS_FRAME, dualAllowed, width }), [view, effectiveView, setView, isDesktop, dualAllowed, width])
   return <DeviceCtx.Provider value={value}>{children}</DeviceCtx.Provider>
 }
 

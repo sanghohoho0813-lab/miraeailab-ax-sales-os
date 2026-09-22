@@ -3,14 +3,16 @@
  * 추천은 고객 컨텍스트(?company=)가 있으면 매칭 엔진, 없으면 검수 완료 · 10억 미만 · 신규 검증 우선.
  * needs_review(검수 필요)는 기본 추천에서 빠지고 전체 목록에서 배지로 보인다. 마스터는 편집한다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Search, SlidersHorizontal } from 'lucide-react'
+import { Search, SlidersHorizontal, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, FundingType, Industry, QuestionArea } from '../types/domain'
 import { Badge, Button, EmptyState, Field, PageTitle, Sheet, SkeletonList, TextArea, TextInput, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { AREA_LABEL, FUNDING_TYPE_LABEL, INDUSTRY_LABEL, INDUSTRY_ORDER } from '../content/labels'
+import { formatEok } from '../content/caseText'
+import { formatDate } from '../lib/util'
 import { CASE_STATS, RESEARCH_SOURCE } from '../content/cases'
 import { recommendCases } from '../engine/caseMatcher'
 import { planQuestions } from '../engine/questionSelector'
@@ -149,7 +151,9 @@ export default function CasesPage() {
   const [params, setParams] = useSearchParams()
   const [cases, setCases] = useState<CaseStudy[] | null>(null)
   const [context, setContext] = useState<Company | null>(null)
-  const [tab, setTab] = useState<'recommended' | 'all'>(params.get('tab') === 'all' ? 'all' : 'recommended')
+  const [tab, setTab] = useState<'recommended' | 'all' | 'review'>(params.get('tab') === 'all' ? 'all' : params.get('tab') === 'review' ? 'review' : 'recommended')
+  const [reviewIdx, setReviewIdx] = useState<number | null>(null)
+  const [reviewBusy, setReviewBusy] = useState(false)
   const [industry, setIndustry] = useState<Industry | 'all'>('all')
   const [funding, setFunding] = useState<FundingType | 'all'>('all')
   const [problem, setProblem] = useState<QuestionArea | 'all'>('all')
@@ -197,6 +201,41 @@ export default function CasesPage() {
       .map((c) => ({ caseStudy: c, reasons: [c.newlyVerified ? '이번 리서치 신규 검증' : '검수 완료', '10억 미만 실제 공개금액'] }))
   }, [cases, context, filtered])
 
+  const reviewQueue = useMemo(() => (cases ?? []).filter((c) => c.verificationStatus === 'needs_review' || c.reviewRequired), [cases])
+  const reviewCase = reviewIdx !== null && reviewQueue.length > 0 ? (reviewQueue[Math.min(reviewIdx, reviewQueue.length - 1)] ?? null) : null
+  const decide = useCallback(
+    async (status: 'verified' | 'needs_review') => {
+      if (!reviewCase || reviewBusy) return
+      setReviewBusy(true)
+      try {
+        const saved = await repo.reviewCase(user, reviewCase.id, status, status === 'verified' ? '원문 확인' : '보류')
+        setCases((cur) => (cur ? cur.map((x) => (x.id === saved.id ? saved : x)) : cur))
+        toast.show(status === 'verified' ? `${saved.companyName} 검수 완료 — 파트너 추천에 들어갑니다.` : `${saved.companyName} 보류`, 'ok')
+        // 검수 완료된 항목은 큐에서 빠지므로 같은 index 가 다음 항목을 가리킨다
+        setReviewIdx((i) => (i === null ? null : status === 'verified' ? Math.min(i, Math.max(0, reviewQueue.length - 2)) : Math.min(i + 1, reviewQueue.length - 1)))
+      } catch (cause) {
+        toast.show(cause instanceof Error ? cause.message : '저장하지 못했습니다.', 'danger')
+      } finally {
+        setReviewBusy(false)
+      }
+    },
+    [reviewCase, reviewBusy, repo, user, toast, reviewQueue.length],
+  )
+  useEffect(() => {
+    if (reviewIdx === null) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
+      if (e.key === 'a' || e.key === 'A') void decide('verified')
+      else if (e.key === 's' || e.key === 'S') setReviewIdx((i) => (i === null ? null : Math.min(i + 1, reviewQueue.length - 1)))
+      else if (e.key === 'e' || e.key === 'E') {
+        if (reviewCase) setEditing(reviewCase)
+      } else if (e.key === 'ArrowLeft') setReviewIdx((i) => (i === null ? null : Math.max(0, i - 1)))
+      else if (e.key === 'ArrowRight') setReviewIdx((i) => (i === null ? null : Math.min(i + 1, reviewQueue.length - 1)))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [reviewIdx, decide, reviewQueue.length, reviewCase])
   const save = async (c: CaseStudy) => {
     const saved = await repo.saveCase(user, c)
     setCases((cur) => (cur ? (cur.some((x) => x.id === saved.id) ? cur.map((x) => (x.id === saved.id ? saved : x)) : [saved, ...cur]) : [saved]))
@@ -274,6 +313,7 @@ export default function CasesPage() {
             [
               ['recommended', context ? '이 미팅에 추천' : '추천'],
               ['all', '전체'],
+              ...(user.role === 'master' ? ([['review', '검수 필요']] as const) : []),
             ] as const
           ).map(([k, label]) => (
             <button
@@ -292,7 +332,7 @@ export default function CasesPage() {
               data-testid={`cases-tab-${k}`}
             >
               {label}
-              <span className="tnum ml-1.5 t-meta text-ink-500">{k === 'all' ? filtered.length : recommended.length}</span>
+              <span className="tnum ml-1.5 t-meta text-ink-500">{k === 'all' ? filtered.length : k === 'review' ? reviewQueue.length : recommended.length}</span>
             </button>
           ))}
         </div>
@@ -301,6 +341,44 @@ export default function CasesPage() {
 
       {!cases ? (
         <SkeletonList rows={4} />
+      ) : tab === 'review' ? (
+        reviewQueue.length === 0 ? (
+          <EmptyState title="검수 필요 사례가 없습니다" body="모든 사례가 검수 완료 상태입니다." />
+        ) : (
+          <div className="space-y-3" data-testid="review-queue">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-control) bg-accent-50 px-4 py-2.5">
+              <span className="t-sub font-semibold text-accent-800">검수 필요 {reviewQueue.length}건 — 원문을 열어 확인한 뒤 [검수 완료] 하면 파트너 추천에 들어갑니다.</span>
+              <Button variant="primary" size="sm" onClick={() => setReviewIdx(0)} data-testid="quick-review-start">
+                빠른 검수 시작 (A 승인 · E 수정 · S 건너뜀)
+              </Button>
+            </div>
+            <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white">
+              {reviewQueue.map((c, i) => (
+                <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3" data-testid="review-row">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold">
+                      {c.companyName} <span className="t-meta font-semibold text-ink-500">{c.subIndustry || INDUSTRY_LABEL[c.industry]}</span>
+                    </p>
+                    <p className="t-sub text-ink-700">
+                      {FUNDING_TYPE_LABEL[c.fundingType]}
+                      {c.fundingAmountDisclosed != null && ` · ${formatEok(c.fundingAmountDisclosed)}`}
+                      {c.fundingProgramMax != null && ` · 한도 ${formatEok(c.fundingProgramMax)}`} · p.{c.researchPage}
+                    </p>
+                    <p className="t-meta text-warn-700">{(c.reviewReasons ?? []).join(' · ') || '검수 필요'}</p>
+                  </div>
+                  {c.sourceUrl && (
+                    <a href={c.sourceUrl} target="_blank" rel="noreferrer noopener" className="btn inline-flex h-9 items-center gap-1 rounded-(--radius-control) border border-line-strong bg-white px-3 t-meta font-bold hover:bg-paper-2">
+                      <ExternalLink aria-hidden="true" className="size-3.5" /> 원문
+                    </a>
+                  )}
+                  <Button size="sm" onClick={() => setReviewIdx(i)}>
+                    검수
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
       ) : tab === 'recommended' ? (
         recommended.length === 0 ? (
           <EmptyState title="조건에 맞는 추천 사례가 없습니다" body="필터를 풀거나 전체 탭에서 직접 찾아보세요." action={<Button onClick={() => setTab('all')}>전체 보기</Button>} />
@@ -338,6 +416,63 @@ export default function CasesPage() {
           )}
         </>
       )}
+
+      {/* 빠른 검수 — 왼쪽 추출값 / 오른쪽 근거 / 하단 이전·검수 완료·다음 */}
+      <Sheet open={Boolean(reviewCase)} onClose={() => setReviewIdx(null)} title={`빠른 검수 ${reviewIdx !== null ? reviewIdx + 1 : 0} / ${reviewQueue.length}`} wide testId="quick-review">
+        {reviewCase && (
+          <div className="space-y-4" data-testid="quick-review-body">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-(--radius-control) border border-line p-4">
+                <p className="t-meta font-black tracking-wide text-ink-500">추출값</p>
+                <p className="mt-1 text-[1.15rem] font-bold">{reviewCase.companyName}</p>
+                <dl className="t-sub mt-2 space-y-1">
+                  <div><dt className="inline font-bold">업종 · </dt><dd className="inline">{INDUSTRY_LABEL[reviewCase.industry]}{reviewCase.subIndustry ? ` (${reviewCase.subIndustry})` : ''}</dd></div>
+                  <div><dt className="inline font-bold">자금 · </dt><dd className="inline">{FUNDING_TYPE_LABEL[reviewCase.fundingType]}{reviewCase.fundingForm ? ` — ${reviewCase.fundingForm}` : ''}</dd></div>
+                  <div><dt className="inline font-bold">금액 · </dt><dd className="inline">{reviewCase.fundingAmountDisclosed != null ? formatEok(reviewCase.fundingAmountDisclosed) : '공개 없음'}{reviewCase.fundingProgramMax != null ? ` / 한도 ${formatEok(reviewCase.fundingProgramMax)}` : ''}{reviewCase.amountRaw ? ` (원문 "${reviewCase.amountRaw}")` : ''}</dd></div>
+                  <div><dt className="inline font-bold">연도 · </dt><dd className="inline">{reviewCase.year || '미확인'}</dd></div>
+                  <div><dt className="inline font-bold">문제 · </dt><dd className="inline">{reviewCase.problem || '—'}</dd></div>
+                  <div><dt className="inline font-bold">전환 · </dt><dd className="inline">{reviewCase.axTransition || '—'}</dd></div>
+                </dl>
+              </div>
+              <div className="rounded-(--radius-control) border border-warn-600/40 bg-warn-50/50 p-4">
+                <p className="t-meta font-black tracking-wide text-warn-700">검수 필요 이유</p>
+                <ul className="t-sub mt-1 list-disc space-y-0.5 pl-5">
+                  {(reviewCase.reviewReasons ?? ['검수 필요']).map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <p className="t-meta mt-3 font-black tracking-wide text-ink-500">근거</p>
+                <p className="t-sub mt-1">
+                  리서치 p.{reviewCase.researchPage} · {reviewCase.source}
+                  {reviewCase.lastVerifiedAt && ` · 마지막 검수 ${formatDate(reviewCase.lastVerifiedAt)}`}
+                </p>
+                {reviewCase.sourceUrl && (
+                  <a href={reviewCase.sourceUrl} target="_blank" rel="noreferrer noopener" className="btn mt-2 inline-flex h-10 items-center gap-1 rounded-(--radius-control) border border-line-strong bg-white px-3 t-sub font-bold hover:bg-paper-2" data-testid="review-open-source">
+                    <ExternalLink aria-hidden="true" className="size-4" /> 원문 열기
+                  </a>
+                )}
+                {reviewCase.narrative && <p className="t-meta mt-3 line-clamp-6 text-ink-700">{reviewCase.narrative}</p>}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+              <Button size="sm" variant="ghost" onClick={() => setReviewIdx((i) => (i === null ? null : Math.max(0, i - 1)))} disabled={reviewIdx === 0}>
+                <ChevronLeft aria-hidden="true" className="size-4" /> 이전
+              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => setEditing(reviewCase)} data-testid="review-edit">
+                  수정 (E)
+                </Button>
+                <Button size="sm" onClick={() => setReviewIdx((i) => (i === null ? null : Math.min(i + 1, reviewQueue.length - 1)))} data-testid="review-skip">
+                  보류·다음 (S) <ChevronRight aria-hidden="true" className="size-4" />
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => void decide('verified')} disabled={reviewBusy} data-testid="review-approve">
+                  검수 완료 (A)
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       {/* 필터 시트 */}
       <Sheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="자금 · 문제 필터" testId="sheet-filters">

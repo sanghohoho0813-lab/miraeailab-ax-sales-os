@@ -107,3 +107,11 @@ export function caseSimilarityTags(c: CaseStudy, areaLabel: (a: CaseStudy['probl
   ].filter((t): t is string => Boolean(t))
   return Array.from(new Set(tags))
 }
+
+/** 제도·정책 관련 사례(보증·정책융자·정부 R&D·사업화·혼합)가 180일 이상 검수되지 않았으면 재확인 권장. 민간투자 과거 사실은 만료 처리하지 않는다. */
+export function needsSourceRecheck(c: CaseStudy, now = Date.now()): boolean {
+  if (!['guarantee', 'policy_loan', 'gov_rnd', 'commercialization', 'mixed'].includes(c.fundingType)) return false
+  const base = c.lastVerifiedAt ?? (c.sourceDate ? `${c.sourceDate}T00:00:00.000Z` : null)
+  if (!base) return true
+  return now - new Date(base).getTime() > 180 * 86400_000
+}

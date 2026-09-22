@@ -272,5 +272,207 @@ do $$ declare n int; m public.partner_members; begin
   raise notice 'T7 사례 DB · 파트너 등록 OK';
 end $$;
 
+
+-- ---------------------------------------------------------------------
+-- 8. (0005) 고객 lifecycle — 직접 DELETE 금지 · 보관 → 복구 · 전달 이력 있으면 영구삭제 차단 · 회사명 확인
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid := (select v from ids where k='company'); n int; prev jsonb; c2 uuid; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  -- 직접 DELETE 는 RLS 가 0행으로 막는다
+  delete from public.partner_companies where id = cid;
+  select count(*) into n from public.partner_companies where id = cid; assert n = 1, '직접 DELETE 가 막혀야 한다';
+  -- 보관 → 목록에서 빠짐(archived_at) → 복구
+  perform public.partner_archive_company(cid);
+  assert (select archived_at from public.partner_companies where id = cid) is not null, '보관됨';
+  perform public.partner_restore_company(cid);
+  assert (select archived_at from public.partner_companies where id = cid) is null, '복구됨';
+  -- 전달 이력(proposal_ready)이 있는 고객은 영구삭제 차단 (보관 후에도)
+  perform public.partner_archive_company(cid);
+  prev := public.partner_company_delete_preview(cid);
+  assert (prev ->> 'can_delete') = 'false' and (prev ->> 'active_handoffs')::int = 1, '전달 요청이 있으면 삭제 불가: ' || prev::text;
+  begin
+    perform public.partner_delete_company_safe(cid, 'ABC산업');
+    raise exception '전달 이력이 있는 고객이 삭제되면 안 된다';
+  exception when others then
+    if sqlerrm like '%삭제되면 안 된다%' then raise; end if;
+  end;
+  select count(*) into n from public.partner_companies where id = cid; assert n = 1, '고객이 남아 있다';
+  perform public.partner_restore_company(cid);
+  -- 전달 이력이 없는 고객: 보관 전 삭제 불가 → 보관 → 회사명 불일치 거부 → 일치 시 삭제 (cascade) + 감사 기록
+  insert into public.partner_companies (consultant_id, name, industry) values ((select v from fx where k='partner1'), '삭제테스트', 'service') returning id into c2;
+  insert into public.partner_meetings (company_id, consultant_id, status, question_ids) values (c2, (select v from fx where k='partner1'), 'draft', array['ceo_dependency']);
+  begin
+    perform public.partner_delete_company_safe(c2, '삭제테스트');
+    raise exception '보관 전 삭제가 되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  perform public.partner_archive_company(c2);
+  begin
+    perform public.partner_delete_company_safe(c2, '다른이름');
+    raise exception '회사명 불일치인데 삭제되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  prev := public.partner_delete_company_safe(c2, '삭제테스트');
+  select count(*) into n from public.partner_companies where id = c2; assert n = 0, '영구 삭제됨';
+  select count(*) into n from public.partner_meetings where company_id = c2; assert n = 0, '미팅도 함께 삭제됨';
+  perform pg_temp.as_super();
+  select count(*) into n from public.partner_audit_events where action in ('company_archived','company_restored','company_deleted'); assert n >= 4, '감사 기록: ' || n;
+  raise notice 'T8 고객 lifecycle OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 9. (0005) 전달 요청 철회 ↔ 운영 OS ignored · 재전달 ↔ new · 운영 OS 보류 → 파트너 withdrawn (양방향)
+-- ---------------------------------------------------------------------
+do $$ declare c2 uuid; m2 uuid; r jsonb; h public.partner_handoffs; e public.customer_events; n int; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  insert into public.partner_companies (consultant_id, name, industry) values ((select v from fx where k='partner1'), '철회테스트', 'service') returning id into c2;
+  insert into public.partner_meetings (company_id, consultant_id, status, question_ids, key_quote, analysis) values (c2, (select v from fx where k='partner1'), 'analyzed', array['ceo_dependency'], '말', '{"version":1}'::jsonb) returning id into m2;
+  r := public.partner_submit_handoff(m2, '{"version":1}'::jsonb, '{"company_name":"철회테스트"}'::jsonb);
+  select * into h from public.partner_handoffs where meeting_id = m2;
+  assert h.status = 'received' and h.customer_event_id is not null, '전달됨';
+  -- 전달된 미팅은 직접 삭제 불가
+  begin
+    perform public.partner_delete_meeting(m2);
+    raise exception '전달된 미팅이 삭제되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  -- 철회
+  perform public.partner_withdraw_handoff(h.id, '대표가 보류 요청');
+  select * into h from public.partner_handoffs where id = h.id;
+  assert h.status = 'withdrawn' and h.withdrawn_at is not null, '철회됨';
+  assert (select status from public.partner_meetings where id = m2) = 'analyzed', '미팅은 분석 상태로';
+  perform pg_temp.as_super();
+  select * into e from public.customer_events where id = h.customer_event_id;
+  assert e.status = 'ignored' and (e.customer_safe_payload ->> 'withdrawn') = 'true', '운영 OS 이벤트도 ignored: ' || e.status;
+  select count(*) into n from public.customer_events where source_type = 'partner_handoff' and source_id = h.id::text; assert n = 1, '새 이벤트를 만들지 않는다';
+  -- 재전달 → 같은 이벤트가 new 로 다시 열린다
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  r := public.partner_submit_handoff(m2, '{"version":1}'::jsonb, '{"company_name":"철회테스트"}'::jsonb);
+  assert (r ->> 'created') = 'true', '재전달 created';
+  select * into h from public.partner_handoffs where id = h.id;
+  assert h.status = 'received' and h.withdrawn_at is null, '재전달 후 received: ' || h.status;
+  perform pg_temp.as_super();
+  select * into e from public.customer_events where id = h.customer_event_id;
+  assert e.status = 'new' and not (e.customer_safe_payload ? 'withdrawn') and (e.customer_safe_payload ->> 'resubmitted') = 'true', '이벤트 다시 new';
+  select count(*) into n from public.customer_events where source_type = 'partner_handoff' and source_id = h.id::text; assert n = 1, '여전히 1건';
+  -- 반대 방향: 운영 OS 가 보류(ignored) → 파트너 withdrawn
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  update public.customer_events set status = 'ignored' where id = h.customer_event_id;
+  perform pg_temp.as_super();
+  select * into h from public.partner_handoffs where id = h.id;
+  assert h.status = 'withdrawn' and h.withdraw_reason <> '', '운영 OS 보류 → 파트너 withdrawn: ' || h.status;
+  -- 다른 파트너는 철회할 수 없다
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  begin
+    perform public.partner_withdraw_handoff(h.id, 'x');
+    raise exception '남의 요청을 철회하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  raise notice 'T9 전달 철회 양방향 OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 10. (0005) 파트너 수정 · 호칭 · 프로필 원천 · 마지막 마스터 보호 (DB) · 파트너는 수정 불가
+-- ---------------------------------------------------------------------
+do $$ declare m public.partner_members; p jsonb; begin
+  -- master1 은 workspace owner 라서 partner_members 없이 마스터. 회원 마스터 1명을 만든다
+  insert into public.partner_members (profile_id, email, display_name, role) values ((select v from fx where k='cust'), 'cust@example.com', '회원마스터', 'master')
+    on conflict (profile_id) do update set role = 'master', active = true;
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  m := public.partner_update_member((select v from fx where k='partner1'), '곽주환', '팀장', 'partner', true);
+  assert m.title = '팀장' and m.display_name = '곽주환', '호칭 저장';
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  p := public.partner_current_profile();
+  assert p ->> 'display_name' = '곽주환' and p ->> 'title' = '팀장' and p ->> 'role' = 'partner', '프로필 원천 = partner_members: ' || p::text;
+  begin
+    perform public.partner_update_member((select v from fx where k='partner2'), '해킹', '', 'master', true);
+    raise exception '파트너가 파트너를 수정하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  -- 마지막 활성 회원 마스터(cust)는 강등/비활성화 불가 — DB 트리거
+  begin
+    update public.partner_members set active = false where profile_id = (select v from fx where k='cust');
+    raise exception '마지막 마스터 비활성화가 되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  begin
+    update public.partner_members set role = 'partner' where profile_id = (select v from fx where k='cust');
+    raise exception '마지막 마스터 강등이 되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  assert (select role from public.partner_members where profile_id = (select v from fx where k='cust')) = 'master', '마스터 유지';
+  -- 마스터가 한 명 더 생기면 강등 가능 (그리고 원상복구)
+  update public.partner_members set role = 'master' where profile_id = (select v from fx where k='partner2');
+  update public.partner_members set role = 'partner' where profile_id = (select v from fx where k='cust');
+  update public.partner_members set role = 'master' where profile_id = (select v from fx where k='cust');
+  update public.partner_members set role = 'partner' where profile_id = (select v from fx where k='partner2');
+  -- 본인 비활성화 금지 (RPC)
+  perform pg_temp.as_user((select v from fx where k='cust'));
+  begin
+    perform public.partner_update_member((select v from fx where k='cust'), '회원마스터', '', 'master', false);
+    raise exception '본인 비활성화가 되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  perform pg_temp.as_super();
+  raise notice 'T10 파트너 수정·마지막 마스터 보호 OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 11. (0005) 담당 재배정 — 배정된 파트너가 고객·미팅을 본다, 작성자는 유지, 파트너는 재배정 불가
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid := (select v from ids where k='company'); n int; begin
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  select count(*) into n from public.partner_companies where id = cid; assert n = 0, '배정 전에는 안 보인다';
+  begin
+    perform public.partner_assign_company(cid, (select v from fx where k='partner2'));
+    raise exception '파트너가 재배정하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  perform public.partner_assign_company(cid, (select v from fx where k='partner2'));
+  perform pg_temp.as_super();
+  assert (select consultant_id from public.partner_companies where id = cid) = (select v from fx where k='partner1'), '작성자 유지';
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  select count(*) into n from public.partner_companies where id = cid; assert n = 1, '배정된 파트너가 본다';
+  select count(*) into n from public.partner_meetings where company_id = cid; assert n >= 1, '배정된 파트너가 미팅도 본다';
+  -- 배정된 파트너가 assigned_to 를 바꿔치기할 수 없다
+  begin
+    update public.partner_companies set assigned_to = (select v from fx where k='partner1') where id = cid;
+    raise exception '파트너가 담당을 바꾸면 안 된다';
+  exception when insufficient_privilege then null; end;
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  perform public.partner_assign_company(cid, null);
+  perform pg_temp.as_super();
+  raise notice 'T11 담당 재배정 OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 12. (0005) 미팅 삭제 규칙 · 사례 검수 RPC · 감사 로그는 마스터만
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid := (select v from ids where k='company'); m1 uuid; m2 uuid; n int; c public.partner_cases; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  insert into public.partner_meetings (company_id, consultant_id, status, question_ids) values (cid, (select v from fx where k='partner1'), 'draft', array['x']) returning id into m1;
+  insert into public.partner_meetings (company_id, consultant_id, status, question_ids) values (cid, (select v from fx where k='partner1'), 'live', array['x']) returning id into m2;
+  perform public.partner_delete_meeting(m1);
+  select count(*) into n from public.partner_meetings where id = m1; assert n = 0, 'draft 삭제';
+  begin
+    perform public.partner_delete_meeting(m2);
+    raise exception 'live 는 취소 전 삭제되면 안 된다';
+  exception when others then if sqlerrm like '%되면 안 된다%' then raise; end if; end;
+  perform public.partner_cancel_meeting(m2);
+  assert (select status from public.partner_meetings where id = m2) = 'cancelled', '취소됨';
+  perform public.partner_delete_meeting(m2);
+  select count(*) into n from public.partner_meetings where id = m2; assert n = 0, '취소 후 삭제';
+  -- 사례 검수는 마스터만, 감사 로그는 마스터만 읽는다
+  begin
+    perform public.partner_review_case((select id from public.partner_cases where verification_status = 'needs_review' limit 1), 'verified', 'x');
+    raise exception '파트너가 사례를 승인하면 안 된다';
+  exception when insufficient_privilege then null; end;
+  select count(*) into n from public.partner_audit_events; assert n = 0, '파트너는 감사 로그를 못 본다';
+  perform pg_temp.as_super();
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  c := public.partner_review_case((select id from public.partner_cases where verification_status = 'needs_review' limit 1), 'verified', '원문 확인');
+  assert c.verification_status = 'verified' and c.review_required = false and c.last_verified_at is not null, '검수 완료';
+  select count(*) into n from public.partner_audit_events; assert n > 5, '마스터는 감사 로그를 본다: ' || n;
+  perform pg_temp.as_super();
+  raise notice 'T12 미팅 삭제·사례 검수·감사 OK';
+end $$;
+
 select 'PARTNER OS CONTRACT: ALL ASSERTIONS PASSED' as result;
 rollback;

@@ -72,6 +72,8 @@ export interface Company {
   memo: string
   /** 미팅에 쓰기로 고른 사례 id (사례 상세의 "이 사례를 미팅에 사용") */
   pinnedCaseIds?: string[]
+  /** 현재 담당 파트너(재배정). null 이면 consultantId(원 작성자). 과거 미팅·전달의 작성자는 덮어쓰지 않는다 */
+  assignedTo?: string | null
   archivedAt: string | null
   createdAt: string
   updatedAt: string
@@ -144,7 +146,7 @@ export interface Question {
 /* 미팅                                                                  */
 /* ------------------------------------------------------------------ */
 
-export type MeetingStatus = 'draft' | 'live' | 'analyzed' | 'submitted'
+export type MeetingStatus = 'draft' | 'live' | 'analyzed' | 'submitted' | 'cancelled'
 
 export type AnswerSource = 'consultant' | 'diagnosis'
 
@@ -250,7 +252,7 @@ export interface Meeting {
 /* 운영 OS 전달 (Handoff)                                               */
 /* ------------------------------------------------------------------ */
 
-export type HandoffStatus = 'draft' | 'submitted' | 'received' | 'reviewing' | 'proposal_ready'
+export type HandoffStatus = 'draft' | 'submitted' | 'received' | 'reviewing' | 'proposal_ready' | 'withdrawn'
 
 /** 운영 OS 로 넘기는 구조화 데이터 — PDF 가 아니라 이것이 본체다 */
 export interface HandoffPayload {
@@ -305,6 +307,11 @@ export interface Handoff {
   operationsClientId: string | null
   submittedAt: string | null
   receivedAt: string | null
+  /** 철회 (Partner) ↔ 운영 OS 이벤트 ignored — 양쪽이 같은 진실 */
+  withdrawnAt?: string | null
+  withdrawReason?: string
+  /** 기록 보존 + 목록에서 숨김 */
+  archivedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -394,6 +401,9 @@ export interface CaseStudy {
   fundingClasses?: FundingType[]
   /** 자금 연결 과정 서술 */
   fundingLink?: string
+  /** 마지막 검수 시각 — 180일이 지난 정책·제도 사례는 "출처 재확인 권장" */
+  lastVerifiedAt?: string | null
+  reviewNote?: string
   /** 리서치 원문 서술 전체 */
   narrative?: string
   narrativeKind?: 'template_A' | 'template_B' | 'template_C' | 'flow' | 'free' | 'none'
@@ -441,9 +451,37 @@ export interface PartnerMember {
   profileId: string
   email: string
   displayName: string
+  /** 호칭 (팀장, 대표 …) */
+  title: string
   role: PartnerRole
   active: boolean
   createdAt: string
+}
+
+/** 마스터 조회용 감사 기록 — 누가 언제 무엇을 어떻게 바꿨는지 */
+export interface AuditEvent {
+  id: string
+  actorId: string | null
+  actorName: string
+  action: string
+  targetType: string
+  targetId: string
+  detail: Record<string, unknown>
+  createdAt: string
+}
+
+/** 영구삭제 전 영향 범위 (DB 가 최종 판정) */
+export interface CompanyDeletePreview {
+  name: string
+  meetings: number
+  analyzed: number
+  handoffs: number
+  activeHandoffs: number
+  transmitted: number
+  usageEvents: number
+  canDelete: boolean
+  reason: string | null
+  requiresMaster: boolean
 }
 
 export interface CurrentUser {

@@ -1,10 +1,10 @@
 /** 2차 제안 요청 — 상태(전달 완료 → 검토중 → 2차 제안 준비중 → 제안 준비완료) + 전달된 구조화 데이터. 파트너는 본인 건만, 마스터는 전체. */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Archive, CheckCircle2, ExternalLink, RotateCcw, Undo2 } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Handoff } from '../types/domain'
-import { Badge, Disclosure, EvidenceBadge, FlatSection, LevelBadge, Section, SkeletonList } from '../components/ui'
+import { Badge, Button, DangerModal, Disclosure, EvidenceBadge, FlatSection, LevelBadge, Section, SkeletonList, TextArea, useToast } from '../components/ui'
 import { AREA_LABEL, HANDOFF_STATUS_LABEL, HEADCOUNT_LABEL, INDUSTRY_LABEL, INTEREST_LABEL, LEVEL_KO, TRADE_LABEL, VALUE_AREA_LABEL, VALUE_AREA_ORDER } from '../content/labels'
 import { getDataModeConfig } from '../data/dataMode'
 import { formatDate } from '../lib/util'
@@ -20,7 +20,11 @@ const STEP_DESC: Record<string, string> = {
 export default function HandoffPage() {
   const { user, repo } = useSession()
   const { handoffId } = useParams()
+  const toast = useToast()
   const [h, setH] = useState<Handoff | null | undefined>(undefined)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!handoffId) return
@@ -31,8 +35,35 @@ export default function HandoffPage() {
   if (h === undefined) return <SkeletonList rows={2} />
   if (!h) return <p className="t-body text-ink-500">전달 내역을 찾을 수 없습니다.</p>
   const p = h.payload
-  const stepIdx = Math.max(0, STEPS.indexOf(h.status))
+  const withdrawn = h.status === 'withdrawn'
+  const stepIdx = withdrawn ? -1 : Math.max(0, STEPS.indexOf(h.status))
   const opsUrl = getDataModeConfig().opsOsUrl
+  const canWithdraw = !withdrawn && h.status !== 'proposal_ready'
+
+  async function withdraw() {
+    if (!h) return
+    setBusy(true)
+    try {
+      const next = await repo.withdrawHandoff(user, h.id, reason.trim())
+      setH(next)
+      setWithdrawOpen(false)
+      toast.show('2차 제안 요청을 철회했습니다. 운영 OS 에서도 보류로 표시됩니다.', 'ok')
+    } catch (cause) {
+      toast.show(cause instanceof Error ? cause.message : '철회하지 못했습니다.', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function toggleArchive() {
+    if (!h) return
+    try {
+      const next = await repo.archiveHandoff(user, h.id, !h.archivedAt)
+      setH(next)
+      toast.show(next.archivedAt ? '요청을 보관했습니다. 기록은 남습니다.' : '보관을 해제했습니다.', 'ok')
+    } catch (cause) {
+      toast.show(cause instanceof Error ? cause.message : '처리하지 못했습니다.', 'danger')
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-8">
@@ -47,13 +78,40 @@ export default function HandoffPage() {
             </a>
           )}
         </div>
-        <p className="mt-3 inline-flex items-center gap-2 text-[1.2rem] font-black text-ok-700">
-          <CheckCircle2 aria-hidden="true" className="size-7" /> 미래AI랩 운영 OS에 전달되었습니다.
-        </p>
+        {withdrawn ? (
+          <p className="mt-3 inline-flex items-center gap-2 text-[1.2rem] font-black text-warn-700" data-testid="handoff-withdrawn">
+            <Undo2 aria-hidden="true" className="size-7" /> 철회된 요청입니다. 운영 OS 에서도 보류로 표시됩니다.
+          </p>
+        ) : (
+          <p className="mt-3 inline-flex items-center gap-2 text-[1.2rem] font-black text-ok-700">
+            <CheckCircle2 aria-hidden="true" className="size-7" /> 미래AI랩 운영 OS에 전달되었습니다.
+          </p>
+        )}
         <h1 className="t-page mt-1">{p.company.name} · 2차 제안 요청</h1>
         <p className="t-sub mt-1 text-ink-500">
           담당 {p.consultant.name} · 미팅 {formatDate(p.meetingDate, true)} · 전달 {formatDate(h.submittedAt, true) || '-'}
+          {withdrawn && h.withdrawnAt && ` · 철회 ${formatDate(h.withdrawnAt, true)}`}
+          {h.archivedAt && ' · 보관됨'}
         </p>
+        {withdrawn && h.withdrawReason && <p className="t-sub mt-1 text-ink-700">사유: {h.withdrawReason}</p>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {canWithdraw && (
+            <Button size="sm" variant="danger" onClick={() => setWithdrawOpen(true)} data-testid="withdraw-handoff">
+              <Undo2 aria-hidden="true" className="size-4" /> 요청 철회
+            </Button>
+          )}
+          {withdrawn && (
+            <Link to={`/meetings/${h.meetingId}/result`}>
+              <Button size="sm" variant="primary" data-testid="resubmit-link">
+                <RotateCcw aria-hidden="true" className="size-4" /> 다시 전달하러 가기
+              </Button>
+            </Link>
+          )}
+          <Button size="sm" onClick={() => void toggleArchive()} data-testid="archive-handoff">
+            <Archive aria-hidden="true" className="size-4" /> {h.archivedAt ? '보관 해제' : '요청 보관'}
+          </Button>
+          {h.status === 'proposal_ready' && <span className="t-meta self-center text-ink-500">제안이 준비된 요청은 철회 대신 보관만 할 수 있습니다</span>}
+        </div>
 
         {/* 상태 타임라인 */}
         <ol className="mt-6 grid gap-2 sm:grid-cols-4" aria-label="전달 상태" data-testid="handoff-status">
@@ -84,6 +142,21 @@ export default function HandoffPage() {
           )}
         </dl>
       </section>
+
+      <DangerModal
+        open={withdrawOpen}
+        onClose={() => setWithdrawOpen(false)}
+        title="2차 제안 요청을 철회할까요?"
+        impact={['운영 OS 이벤트함의 이 요청이 보류(ignored) 로 바뀝니다', '미팅은 분석 완료 상태로 돌아가고, 필요하면 다시 전달할 수 있습니다']}
+        recoverable="철회는 기록으로 남습니다. 같은 미팅을 다시 전달하면 같은 요청이 다시 열립니다(새 요청을 만들지 않습니다)."
+        confirmLabel="요청 철회"
+        tone="warn"
+        onConfirm={withdraw}
+        busy={busy}
+        testId="withdraw-modal"
+      >
+        <TextArea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="사유 (선택) — 예: 대표가 보류 요청" className="min-h-20" data-testid="withdraw-reason" />
+      </DangerModal>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="기업 기본정보">

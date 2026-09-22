@@ -5,8 +5,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
+  AuditEvent,
   CaseStudy,
   Company,
+  CompanyDeletePreview,
   CreateCompanyInput,
   CurrentUser,
   DiagnosisSnapshot,
@@ -41,6 +43,7 @@ function companyFromRow(r: Row): Company {
     diagnosis: r.diagnosis && typeof r.diagnosis === 'object' ? (r.diagnosis as DiagnosisSnapshot) : null,
     memo: str(r.memo),
     pinnedCaseIds: arr(r.pinned_case_ids),
+    assignedTo: strOrNull(r.assigned_to),
     archivedAt: strOrNull(r.archived_at),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
@@ -109,9 +112,15 @@ function handoffFromRow(r: Row): Handoff {
     operationsClientId: strOrNull(r.operations_client_id),
     submittedAt: strOrNull(r.submitted_at),
     receivedAt: strOrNull(r.received_at),
+    withdrawnAt: strOrNull(r.withdrawn_at),
+    withdrawReason: str(r.withdraw_reason),
+    archivedAt: strOrNull(r.archived_at),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
   }
+}
+function auditFromRow(r: Row): AuditEvent {
+  return { id: str(r.id), actorId: strOrNull(r.actor_id), actorName: str(r.actor_name), action: str(r.action), targetType: str(r.target_type), targetId: str(r.target_id), detail: obj<Record<string, unknown>>(r.detail, {}), createdAt: str(r.created_at) }
 }
 function caseFromRow(r: Row): CaseStudy {
   const p = obj<Partial<CaseStudy>>(r.payload, {})
@@ -119,6 +128,7 @@ function caseFromRow(r: Row): CaseStudy {
     ...p,
     sourceUrl: p.sourceUrl ?? str(r.source_url),
     reviewRequired: typeof p.reviewRequired === 'boolean' ? p.reviewRequired : r.review_required === true,
+    lastVerifiedAt: strOrNull(r.last_verified_at) ?? p.lastVerifiedAt ?? null,
     id: str(r.id),
     companyName: str(r.company_name),
     industry: str(r.industry, 'other') as CaseStudy['industry'],
@@ -185,6 +195,7 @@ function memberFromRow(r: Row): PartnerMember {
     profileId: str(r.profile_id),
     email: str(r.email),
     displayName: str(r.display_name),
+    title: str(r.title),
     role: str(r.role, 'partner') as PartnerMember['role'],
     active: r.active === true,
     createdAt: str(r.created_at),
@@ -235,9 +246,49 @@ export class SupabaseRepository implements Repository {
     if (error) fail(error, '업체를 저장하지 못했습니다.')
     return companyFromRow(data as Row)
   }
+  async listArchivedCompanies(): Promise<Company[]> {
+    const { data, error } = await this.client.from('partner_companies').select('*').not('archived_at', 'is', null).order('archived_at', { ascending: false })
+    if (error) fail(error, '휴지통을 불러오지 못했습니다.')
+    return (data ?? []).map((r) => companyFromRow(r as Row))
+  }
   async archiveCompany(_u: CurrentUser, id: string): Promise<void> {
-    const { error } = await this.client.from('partner_companies').update({ archived_at: new Date().toISOString() }).eq('id', id)
-    if (error) fail(error, '업체를 보관하지 못했습니다.')
+    const { error } = await this.client.rpc('partner_archive_company', { p_company_id: id })
+    if (error) fail(error, '고객을 휴지통으로 이동하지 못했습니다.')
+  }
+  async restoreCompany(_u: CurrentUser, id: string): Promise<void> {
+    const { error } = await this.client.rpc('partner_restore_company', { p_company_id: id })
+    if (error) fail(error, '고객을 복구하지 못했습니다.')
+  }
+  async previewCompanyDelete(_u: CurrentUser, id: string): Promise<CompanyDeletePreview> {
+    const { data, error } = await this.client.rpc('partner_company_delete_preview', { p_company_id: id })
+    if (error) fail(error, '삭제 영향 범위를 확인하지 못했습니다.')
+    const d = data as Row
+    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? 0))
+    return { name: str(d.name), meetings: num(d.meetings), analyzed: num(d.analyzed), handoffs: num(d.handoffs), activeHandoffs: num(d.active_handoffs), transmitted: num(d.transmitted), usageEvents: num(d.usage_events), canDelete: d.can_delete === true, reason: strOrNull(d.reason), requiresMaster: d.requires_master === true }
+  }
+  /** SECURITY DEFINER RPC — 권한·회사명·전달 이력·운영 OS 상태를 DB 가 확인한 뒤에만 삭제한다. 직접 delete() 없음 */
+  async deleteCompanyPermanent(_u: CurrentUser, id: string, confirmName: string): Promise<void> {
+    const { error } = await this.client.rpc('partner_delete_company_safe', { p_company_id: id, p_confirm_name: confirmName })
+    if (error) fail(error, '고객을 영구 삭제하지 못했습니다.')
+  }
+  async findSimilarCompanies(user: CurrentUser, name: string, phone: string): Promise<Company[]> {
+    const n = name.replace(/\s/g, '').toLowerCase()
+    const digits = phone.replace(/\D/g, '')
+    if (n.length < 2 && !digits) return []
+    const { data, error } = await this.client.from('partner_companies').select('*').limit(300)
+    if (error) fail(error, '기존 고객을 확인하지 못했습니다.')
+    void user
+    return (data ?? [])
+      .map((r) => companyFromRow(r as Row))
+      .filter((c) => {
+        const cn = c.name.replace(/\s/g, '').toLowerCase()
+        return (n.length >= 2 && (cn.includes(n) || n.includes(cn))) || (digits.length >= 8 && c.phone.replace(/\D/g, '') === digits)
+      })
+  }
+  async assignCompany(_u: CurrentUser, companyId: string, profileId: string | null): Promise<Company> {
+    const { data, error } = await this.client.rpc('partner_assign_company', { p_company_id: companyId, p_profile_id: profileId })
+    if (error) fail(error, '담당을 바꾸지 못했습니다.')
+    return companyFromRow(data as Row)
   }
 
   async listMeetings(_u: CurrentUser, companyId?: string): Promise<Meeting[]> {
@@ -266,6 +317,15 @@ export class SupabaseRepository implements Repository {
     if (error) fail(error, '미팅을 저장하지 못했습니다.')
     return meetingFromRow(data as Row)
   }
+  async cancelMeeting(_u: CurrentUser, id: string): Promise<Meeting> {
+    const { data, error } = await this.client.rpc('partner_cancel_meeting', { p_meeting_id: id })
+    if (error) fail(error, '미팅을 취소하지 못했습니다.')
+    return meetingFromRow(data as Row)
+  }
+  async deleteMeeting(_u: CurrentUser, id: string): Promise<void> {
+    const { error } = await this.client.rpc('partner_delete_meeting', { p_meeting_id: id })
+    if (error) fail(error, '미팅을 삭제하지 못했습니다.')
+  }
 
   async getHandoffByMeeting(_u: CurrentUser, meetingId: string): Promise<Handoff | null> {
     const { data, error } = await this.client.from('partner_handoffs').select('*').eq('meeting_id', meetingId).maybeSingle()
@@ -290,6 +350,17 @@ export class SupabaseRepository implements Repository {
     return { handoff: handoffFromRow(obj<Row>(r.handoff, {})), created: r.created === true }
   }
 
+  async withdrawHandoff(_u: CurrentUser, id: string, reason: string): Promise<Handoff> {
+    const { data, error } = await this.client.rpc('partner_withdraw_handoff', { p_handoff_id: id, p_reason: reason })
+    if (error) fail(error, '전달 요청을 철회하지 못했습니다.')
+    return handoffFromRow(data as Row)
+  }
+  async archiveHandoff(_u: CurrentUser, id: string, archived: boolean): Promise<Handoff> {
+    const { data, error } = await this.client.rpc('partner_archive_handoff', { p_handoff_id: id, p_archived: archived })
+    if (error) fail(error, '전달 요청을 보관하지 못했습니다.')
+    return handoffFromRow(data as Row)
+  }
+
   async listCases(): Promise<CaseStudy[]> {
     const { data, error } = await this.client.from('partner_cases').select('*').order('updated_at', { ascending: false })
     if (error) fail(error, '사례를 불러오지 못했습니다.')
@@ -303,6 +374,17 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.client.from('partner_cases').upsert(caseToRow(caseStudy), { onConflict: 'id' }).select('*').single()
     if (error) fail(error, '사례를 저장하지 못했습니다.')
     return caseFromRow(data as Row)
+  }
+
+  async reviewCase(_u: CurrentUser, id: string, status: CaseStudy['verificationStatus'], note = ''): Promise<CaseStudy> {
+    const { data, error } = await this.client.rpc('partner_review_case', { p_case_id: id, p_status: status, p_note: note })
+    if (error) fail(error, '사례 검수를 저장하지 못했습니다.')
+    return caseFromRow(data as Row)
+  }
+  async listAudit(_u: CurrentUser, limit = 200): Promise<AuditEvent[]> {
+    const { data, error } = await this.client.from('partner_audit_events').select('*').order('created_at', { ascending: false }).limit(limit)
+    if (error) fail(error, '감사 로그를 불러오지 못했습니다.')
+    return (data ?? []).map((r) => auditFromRow(r as Row))
   }
 
   async lookupDiagnosis(_u: CurrentUser, companyName: string, phone: string): Promise<DiagnosisSnapshot | null> {
@@ -329,7 +411,7 @@ export class SupabaseRepository implements Repository {
     if (error) console.warn('[usage] 기록 실패', error.message)
   }
   async listUsage(_u: CurrentUser, meetingId?: string): Promise<UsageEvent[]> {
-    let q = this.client.from('partner_meeting_events').select('*').order('created_at', { ascending: false }).limit(500)
+    let q = this.client.from('partner_meeting_events').select('*').order('created_at', { ascending: false }).limit(5000)
     if (meetingId) q = q.eq('meeting_id', meetingId)
     const { data, error } = await q
     if (error) fail(error, '사용 기록을 불러오지 못했습니다.')
@@ -349,8 +431,15 @@ export class SupabaseRepository implements Repository {
     if (error) fail(error, '파트너를 추가하지 못했습니다.')
     return memberFromRow(data as Row)
   }
-  async setMemberActive(_u: CurrentUser, profileId: string, active: boolean): Promise<void> {
-    const { error } = await this.client.from('partner_members').update({ active }).eq('profile_id', profileId)
-    if (error) fail(error, '파트너 상태를 바꾸지 못했습니다.')
+  async updateMember(_u: CurrentUser, profileId: string, patch: { displayName: string; title: string; role: 'partner' | 'master'; active: boolean }): Promise<PartnerMember> {
+    const { data, error } = await this.client.rpc('partner_update_member', { p_profile_id: profileId, p_display_name: patch.displayName, p_title: patch.title, p_role: patch.role, p_active: patch.active })
+    if (error) fail(error, '파트너 정보를 저장하지 못했습니다.')
+    return memberFromRow(data as Row)
+  }
+  async setMemberActive(u: CurrentUser, profileId: string, active: boolean): Promise<void> {
+    const members = await this.listMembers()
+    const m = members.find((x) => x.profileId === profileId)
+    if (!m) throw new Error('파트너를 찾을 수 없습니다.')
+    await this.updateMember(u, profileId, { displayName: m.displayName, title: m.title, role: m.role, active })
   }
 }

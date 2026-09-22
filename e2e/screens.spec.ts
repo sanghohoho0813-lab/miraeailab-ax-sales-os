@@ -46,6 +46,11 @@ const VIEWPORTS = [
   { w: 390, h: 844 },
   { w: 430, h: 932 },
   { w: 768, h: 1024 },
+  { w: 900, h: 800 },
+  { w: 1024, h: 800 },
+  { w: 1100, h: 800 },
+  { w: 1180, h: 800 },
+  { w: 1200, h: 800 },
   { w: 1280, h: 800 },
   { w: 1440, h: 900 },
   { w: 1920, h: 1080 },
@@ -70,17 +75,29 @@ async function routes(browser: Browser, w: number, h: number, dual: boolean) {
     ['playbook', '/playbook'],
     ['settings', '/settings'],
     ['meetings', '/meetings'],
+    ['trash', '/companies/trash'],
+    ['inbox', '/master/inbox'],
+    ['partners', '/master/partners'],
   ]
   const tag = dual ? `dual-${w}` : `${w}`
   const overflows: string[] = []
   for (const [name, path] of list) {
+    if (path.startsWith('/master')) await page.evaluate(() => localStorage.setItem('axpartner.local_role', 'master'))
     await page.goto(path)
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(500)
     if (dual) await expect(page.getByTestId('dual-view')).toBeVisible()
+    if (name === 'settings' && w >= 1024) {
+      // 테마 카드 스와치는 어떤 폭에서도 쪼그라들지 않는다
+      const widths = await page.getByTestId('theme-swatch').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width))
+      for (const sw of widths) expect(sw, `swatch width @${w}`).toBeGreaterThanOrEqual(66)
+      const cards = await page.getByTestId('theme-grid').getByRole('radio').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width))
+      for (const cw of cards) expect(cw, `theme card width @${w}`).toBeGreaterThanOrEqual(258)
+    }
     await page.screenshot({ path: `${OUT}/${tag}-${name}.png`, fullPage: !dual })
     const over = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
     if (over) overflows.push(name)
+    if (path.startsWith('/master')) await page.evaluate(() => localStorage.setItem('axpartner.local_role', 'partner'))
   }
   await context.close()
   return overflows
@@ -97,6 +114,36 @@ test('screens dual view 1440', async ({ browser }) => {
   test.skip(!existsSync(STATE), 'seed 필요')
   const over = await routes(browser, 1440, 900, true)
   expect(over, `가로 넘침: ${over.join(', ')}`).toEqual([])
+})
+
+test('dual view 는 1440px 미만에서 PC 로 fallback 하고 안내한다', async ({ browser }) => {
+  test.skip(!existsSync(STATE), 'seed 필요')
+  const context = await browser.newContext({ storageState: STATE, viewport: { width: 1280, height: 800 } })
+  const page = await context.newPage()
+  await page.goto('/')
+  await page.evaluate(() => localStorage.setItem('axpartner.deviceView', 'dual'))
+  await page.reload()
+  await expect(page.getByTestId('dual-view')).toHaveCount(0)
+  await expect(page.getByTestId('sidebar-full')).toBeVisible()
+  await expect(page.getByTestId('device-dual')).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByTestId('device-dual')).toHaveAttribute('title', /1440px 이상/)
+  await context.close()
+})
+
+test('1024~1279 는 아이콘 레일, 1280 부터 전체 사이드바', async ({ browser }) => {
+  test.skip(!existsSync(STATE), 'seed 필요')
+  for (const [w, rail] of [
+    [1024, true],
+    [1180, true],
+    [1280, false],
+  ] as const) {
+    const context = await browser.newContext({ storageState: STATE, viewport: { width: w, height: 800 } })
+    const page = await context.newPage()
+    await page.goto('/settings')
+    await expect(page.getByTestId(rail ? 'sidebar-rail' : 'sidebar-full')).toBeVisible()
+    await expect(page.getByTestId(rail ? 'sidebar-full' : 'sidebar-rail')).toBeHidden()
+    await context.close()
+  }
 })
 
 test('hover — 버튼·카드·내비가 호버에서 변한다', async ({ browser }) => {

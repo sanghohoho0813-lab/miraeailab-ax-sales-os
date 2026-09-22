@@ -151,8 +151,24 @@ export default function MeetingResultPage() {
       </section>
 
       {/* CTA */}
-      <section className={`rounded-(--radius-card) border-2 p-5 sm:p-7 ${handoff ? 'border-ok-600/40 bg-ok-50/50' : 'border-accent-600 bg-accent-50/50'}`} data-testid="handoff-cta">
-        {handoff ? (
+      <section className={`rounded-(--radius-card) border-2 p-5 sm:p-7 ${handoff && handoff.status !== 'withdrawn' ? 'border-ok-600/40 bg-ok-50/50' : 'border-accent-600 bg-accent-50/50'}`} data-testid="handoff-cta">
+        {handoff && handoff.status === 'withdrawn' ? (
+          <div>
+            <p className="t-section text-warn-700" data-testid="handoff-withdrawn">철회된 2차 제안 요청</p>
+            <p className="t-sub mt-1 text-ink-700">
+              {handoff.withdrawnAt && `${formatDate(handoff.withdrawnAt, true)} 철회`}
+              {handoff.withdrawReason && ` · ${handoff.withdrawReason}`} — 운영 OS 에서도 보류로 표시됩니다. 다시 전달하면 같은 요청이 다시 열립니다.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="primary" size="lg" onClick={() => void submit()} disabled={busy} data-testid="submit-handoff">
+                <Send aria-hidden="true" className="size-5" /> {busy ? '전달 중…' : '다시 전달'}
+              </Button>
+              <Link to={`/handoffs/${handoff.id}`} className="t-sub self-center font-semibold text-accent-700 hover:underline" data-testid="handoff-link">
+                전달 내용 · 상태 보기
+              </Link>
+            </div>
+          </div>
+        ) : handoff ? (
           <div className={justSent ? 'pop' : ''}>
             <p className="inline-flex items-center gap-2 text-[1.35rem] font-black text-ok-700" data-testid="handoff-success">
               <CheckCircle2 aria-hidden="true" className="size-8" /> 미래AI랩 운영 OS에 전달되었습니다.

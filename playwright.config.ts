@@ -26,9 +26,10 @@ export default defineConfig({
   },
   projects: [
     { name: 'screens', testMatch: /screens\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    { name: 'hardening', testMatch: /hardening\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     // 모바일·태블릿은 Chromium 기반 기기 설명자를 쓴다 (WebKit 은 이 환경에 없다)
-    { name: 'mobile', testIgnore: /screens\.spec\.ts/, use: { ...devices['Pixel 7'] } },
-    { name: 'tablet', testIgnore: /screens\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
-    { name: 'desktop', testIgnore: /screens\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'mobile', testIgnore: /(screens|hardening)\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'tablet', testIgnore: /(screens|hardening)\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
+    { name: 'desktop', testIgnore: /(screens|hardening)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
   ],
 })

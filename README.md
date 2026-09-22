@@ -21,7 +21,7 @@ MASTER    미래AI랩 운영 OS 이벤트함 ◀─┘  → 2차 제안 · Value
 | AFTER | **김상호 대표에게 2차 제안 요청** | 구조화 데이터로 운영 OS 즉시 전달 · meeting_id 기준 idempotent · 상태(submitted→received→reviewing→proposal_ready) |
 | AFTER | PDF | "1차 AX 미팅 내부 리포트" (보관·출력용, 고객 자동 발송 없음) |
 | 공통 | WORK(홈·미팅·고객) · KNOWLEDGE(실제 사례 371건 탐색/상세 · AX 플레이북[영업 원칙/상황별 답변/주의 표현]) · SYSTEM(설정: 7 테마 · Device View) | 파트너 |
-| MASTER | 2차 제안 요청함 · 파트너 관리 · 사례 DB 관리(검수) | 미래AI랩 |
+| MASTER | 2차 제안 요청함(상태·검색·필터·보관) · 파트너 관리(등록·수정·호칭·상세) · 담당 재배정 · 사례 검수 큐(빠른 검수 A/E/S) · 사용 데이터 · 변경 기록 | 미래AI랩 |
 
 ## 기술 스택 (기존 미래AI랩 프로젝트와 동일)
 
@@ -61,6 +61,7 @@ supabase/
   migrations/20260922000002_partner_os_bridge.sql  운영 OS customer_events 연결 (전달 · 상태 역동기화)
   migrations/20260922000003_partner_cases_research_seed.sql  리서치 PDF 기반 실제 사례 371건 시드 (mixed 자금유형 · source_url · review_required)
   migrations/20260922000004_partner_companies_pinned_cases.sql  업체별 "미팅에 사용할 사례"
+  migrations/20260922000005_partner_ops_hardening.sql  휴지통/안전 삭제 RPC · 전달 철회↔운영 OS · 파트너 수정·마지막 마스터 보호 · 재배정 · 감사 로그 · 사례 검수
   tests/partner_os_contract.sql                    순수 SQL 계약 테스트 (권한 격리 · 중복 방지 · 역동기화)
 e2e/       Playwright 핵심 흐름
 ```

@@ -7,9 +7,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Company, Headcount, Industry, Interest, TradeType } from '../types/domain'
-import { Button, ChoiceGrid, Field, TextArea, TextInput, useToast, SkeletonList } from '../components/ui'
+import { Button, ChoiceGrid, Field, Sheet, TextArea, TextInput, useToast, SkeletonList } from '../components/ui'
 import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_LABEL, INTEREST_ORDER, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
-import { isoToLocalInput, localInputToIso } from '../lib/util'
+import { formatDate, isoToLocalInput, localInputToIso } from '../lib/util'
 
 const STEPS = [
   { key: 'company', label: '회사', title: '어느 회사를 만나시나요?', sub: '회사명만 정확하면 됩니다. 연락처는 홈페이지 3분 AX Fit 사전진단을 찾는 데만 씁니다.' },
@@ -40,6 +40,8 @@ export default function CompanyNewPage() {
   const [memo, setMemo] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [similar, setSimilar] = useState<Company[] | null>(null)
+  const [dupChecked, setDupChecked] = useState('')
 
   useEffect(() => {
     document.title = `${editing ? '고객 정보 수정' : '미팅 준비'} · AX Partner OS`
@@ -90,6 +92,16 @@ export default function CompanyNewPage() {
   function next() {
     if (stepError) return setError(stepError)
     setError('')
+    // 1단계 → 2단계: 비슷한 고객이 이미 있으면 먼저 알려 준다 (막지는 않는다)
+    const key = `${name.trim()}|${phone.trim()}`
+    if (step === 0 && !editing && dupChecked !== key) {
+      void repo.findSimilarCompanies(user, name, phone).then((list) => {
+        setDupChecked(key)
+        if (list.length > 0) setSimilar(list)
+        else setStep(1)
+      })
+      return
+    }
     setStep((s) => Math.min(STEPS.length - 1, s + 1))
   }
   function back() {
@@ -273,6 +285,43 @@ export default function CompanyNewPage() {
           {error}
         </p>
       )}
+
+      <Sheet open={Boolean(similar)} onClose={() => setSimilar(null)} title="비슷한 고객이 이미 있습니다" testId="dup-sheet">
+        <p className="t-body text-ink-700">
+          <b>{name}</b>{phone ? ` · ${phone}` : ''} 와(과) 비슷한 고객입니다. 같은 회사라면 기존 고객을 여세요.
+        </p>
+        <ul className="mt-3 divide-y divide-line overflow-hidden rounded-(--radius-control) border border-line">
+          {(similar ?? []).map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <span className="block font-bold">
+                  {c.name}
+                  {c.archivedAt && <span className="ml-2 t-meta font-bold text-warn-700">휴지통</span>}
+                </span>
+                <span className="t-meta block text-ink-500">
+                  {c.phone || '연락처 없음'} · 등록 {formatDate(c.createdAt)}
+                  {c.meetingAt && ` · 미팅 ${formatDate(c.meetingAt)}`}
+                </span>
+              </span>
+              <Link to={c.archivedAt ? '/companies/trash' : `/companies/${c.id}`} className="btn inline-flex h-10 items-center rounded-(--radius-control) border border-line-strong bg-white px-3 t-sub font-semibold hover:bg-paper-2" data-testid="open-existing">
+                {c.archivedAt ? '휴지통 열기' : '기존 고객 열기'}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="primary"
+            onClick={() => {
+              setSimilar(null)
+              setStep(1)
+            }}
+            data-testid="register-anyway"
+          >
+            그래도 새로 등록
+          </Button>
+        </div>
+      </Sheet>
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
         <Button size="md" onClick={back} disabled={step === 0 || busy} data-testid="prep-back">

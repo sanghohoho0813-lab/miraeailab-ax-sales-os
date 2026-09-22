@@ -6,6 +6,7 @@ import { Spinner } from './components/ui'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import CompaniesPage from './pages/CompaniesPage'
+import CompanyTrashPage from './pages/CompanyTrashPage'
 import MeetingsPage from './pages/MeetingsPage'
 import CompanyNewPage from './pages/CompanyNewPage'
 import CompanyPage from './pages/CompanyPage'
@@ -22,6 +23,9 @@ import HandoffPage from './pages/HandoffPage'
 const MeetingReportPage = lazy(() => import('./pages/MeetingReportPage'))
 const MasterInboxPage = lazy(() => import('./pages/MasterInboxPage'))
 const MasterPartnersPage = lazy(() => import('./pages/MasterPartnersPage'))
+const MasterPartnerProfilePage = lazy(() => import('./pages/MasterPartnerProfilePage'))
+const MasterAuditPage = lazy(() => import('./pages/MasterAuditPage'))
+const MasterUsagePage = lazy(() => import('./pages/MasterUsagePage'))
 
 function Guard({ children }: { children: ReactNode }) {
   const { status } = useAuth()
@@ -62,6 +66,7 @@ export default function App() {
         <Route path="meetings" element={<MeetingsPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="companies/new" element={<CompanyNewPage />} />
+        <Route path="companies/trash" element={<CompanyTrashPage />} />
         <Route path="companies/:companyId" element={<CompanyPage />} />
         <Route path="companies/:companyId/edit" element={<CompanyNewPage />} />
         <Route path="meetings/:meetingId/live" element={<MeetingLivePage />} />
@@ -90,6 +95,36 @@ export default function App() {
             <MasterOnly>
               <Suspense fallback={<Spinner />}>
                 <MasterPartnersPage />
+              </Suspense>
+            </MasterOnly>
+          }
+        />
+        <Route
+          path="master/partners/:profileId"
+          element={
+            <MasterOnly>
+              <Suspense fallback={<Spinner />}>
+                <MasterPartnerProfilePage />
+              </Suspense>
+            </MasterOnly>
+          }
+        />
+        <Route
+          path="master/audit"
+          element={
+            <MasterOnly>
+              <Suspense fallback={<Spinner />}>
+                <MasterAuditPage />
+              </Suspense>
+            </MasterOnly>
+          }
+        />
+        <Route
+          path="master/usage"
+          element={
+            <MasterOnly>
+              <Suspense fallback={<Spinner />}>
+                <MasterUsagePage />
               </Suspense>
             </MasterOnly>
           }
