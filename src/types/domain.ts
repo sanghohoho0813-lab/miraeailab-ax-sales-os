@@ -70,6 +70,8 @@ export interface Company {
   meetingAt: string | null
   diagnosis: DiagnosisSnapshot | null
   memo: string
+  /** 미팅에 쓰기로 고른 사례 id (사례 상세의 "이 사례를 미팅에 사용") */
+  pinnedCaseIds?: string[]
   archivedAt: string | null
   createdAt: string
   updatedAt: string

@@ -109,6 +109,7 @@ export class LocalRepository implements Repository {
       meetingAt: input.meetingAt ?? null,
       diagnosis: null,
       memo: input.memo?.trim() ?? '',
+      pinnedCaseIds: [],
       archivedAt: null,
       createdAt: now,
       updatedAt: now,

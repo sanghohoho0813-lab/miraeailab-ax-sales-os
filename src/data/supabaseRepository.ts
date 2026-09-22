@@ -40,6 +40,7 @@ function companyFromRow(r: Row): Company {
     meetingAt: strOrNull(r.meeting_at),
     diagnosis: r.diagnosis && typeof r.diagnosis === 'object' ? (r.diagnosis as DiagnosisSnapshot) : null,
     memo: str(r.memo),
+    pinnedCaseIds: arr(r.pinned_case_ids),
     archivedAt: strOrNull(r.archived_at),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
@@ -58,6 +59,7 @@ function companyToRow(c: Company): Row {
     meeting_at: c.meetingAt,
     diagnosis: c.diagnosis,
     memo: c.memo,
+    pinned_case_ids: c.pinnedCaseIds ?? [],
     archived_at: c.archivedAt,
   }
 }

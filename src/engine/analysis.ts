@@ -295,7 +295,8 @@ export function analyzeMeeting(company: Company, meeting: Meeting, cases: CaseSt
 
   /* 9) 유사사례 */
   const rec = recommendCases(cases, company, painPoints.map((p) => p.area), { growthAnswer: growth, fundingInterest: (g('funding_interest') ?? 0) >= 1, areaLabel: (a) => AREA_LABEL[a] })
-  const similarCaseIds = [rec.primary?.caseStudy.id, rec.secondary?.caseStudy.id].filter((x): x is string => Boolean(x))
+  // 컨설턴트가 미팅에 쓰기로 고른 사례(pinned)를 먼저, 그다음 추천 ①②
+  const similarCaseIds = Array.from(new Set([...(company.pinnedCaseIds ?? []).filter((id) => cases.some((c) => c.id === id)), rec.primary?.caseStudy.id, rec.secondary?.caseStudy.id].filter((x): x is string => Boolean(x)))).slice(0, 3)
 
   /* 10) CLIENT SAFE 요약 */
   const clientSafeSummary = [

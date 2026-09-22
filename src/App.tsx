@@ -12,9 +12,8 @@ import CompanyPage from './pages/CompanyPage'
 import MeetingLivePage from './pages/MeetingLivePage'
 import MeetingResultPage from './pages/MeetingResultPage'
 import CasesPage from './pages/CasesPage'
+import CaseDetailPage from './pages/CaseDetailPage'
 import PlaybookPage from './pages/PlaybookPage'
-import ObjectionsPage from './pages/ObjectionsPage'
-import ForbiddenPage from './pages/ForbiddenPage'
 import MorePage from './pages/MorePage'
 import SettingsPage from './pages/SettingsPage'
 import HandoffPage from './pages/HandoffPage'
@@ -69,9 +68,10 @@ export default function App() {
         <Route path="meetings/:meetingId/result" element={<MeetingResultPage />} />
         <Route path="handoffs/:handoffId" element={<HandoffPage />} />
         <Route path="cases" element={<CasesPage />} />
+        <Route path="cases/:caseId" element={<CaseDetailPage />} />
         <Route path="playbook" element={<PlaybookPage />} />
-        <Route path="objections" element={<ObjectionsPage />} />
-        <Route path="forbidden" element={<ForbiddenPage />} />
+        <Route path="objections" element={<Navigate to="/playbook?tab=objections" replace />} />
+        <Route path="forbidden" element={<Navigate to="/playbook?tab=forbidden" replace />} />
         <Route path="more" element={<MorePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route
