@@ -1,0 +1,99 @@
+import { Suspense, lazy, type ReactNode } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useAuth } from './lib/auth'
+import { AppShell } from './components/AppShell'
+import { Spinner } from './components/ui'
+import LoginPage from './pages/LoginPage'
+import DashboardPage from './pages/DashboardPage'
+import CompaniesPage from './pages/CompaniesPage'
+import CompanyNewPage from './pages/CompanyNewPage'
+import CompanyPage from './pages/CompanyPage'
+import MeetingLivePage from './pages/MeetingLivePage'
+import MeetingResultPage from './pages/MeetingResultPage'
+import CasesPage from './pages/CasesPage'
+import PlaybookPage from './pages/PlaybookPage'
+import ObjectionsPage from './pages/ObjectionsPage'
+import ForbiddenPage from './pages/ForbiddenPage'
+import MorePage from './pages/MorePage'
+import SettingsPage from './pages/SettingsPage'
+import HandoffPage from './pages/HandoffPage'
+
+// 인쇄 리포트·마스터 화면은 자주 쓰지 않으므로 분리 청크
+const MeetingReportPage = lazy(() => import('./pages/MeetingReportPage'))
+const MasterInboxPage = lazy(() => import('./pages/MasterInboxPage'))
+const MasterPartnersPage = lazy(() => import('./pages/MasterPartnersPage'))
+
+function Guard({ children }: { children: ReactNode }) {
+  const { status } = useAuth()
+  const location = useLocation()
+  if (status === 'loading') return <Spinner />
+  if (status === 'ready') return <>{children}</>
+  return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+}
+
+function MasterOnly({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  if (user?.role !== 'master') return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/meetings/:meetingId/report"
+        element={
+          <Guard>
+            <Suspense fallback={<Spinner />}>
+              <MeetingReportPage />
+            </Suspense>
+          </Guard>
+        }
+      />
+      <Route
+        element={
+          <Guard>
+            <AppShell />
+          </Guard>
+        }
+      >
+        <Route index element={<DashboardPage />} />
+        <Route path="companies" element={<CompaniesPage />} />
+        <Route path="companies/new" element={<CompanyNewPage />} />
+        <Route path="companies/:companyId" element={<CompanyPage />} />
+        <Route path="companies/:companyId/edit" element={<CompanyNewPage />} />
+        <Route path="meetings/:meetingId/live" element={<MeetingLivePage />} />
+        <Route path="meetings/:meetingId/result" element={<MeetingResultPage />} />
+        <Route path="handoffs/:handoffId" element={<HandoffPage />} />
+        <Route path="cases" element={<CasesPage />} />
+        <Route path="playbook" element={<PlaybookPage />} />
+        <Route path="objections" element={<ObjectionsPage />} />
+        <Route path="forbidden" element={<ForbiddenPage />} />
+        <Route path="more" element={<MorePage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route
+          path="master/inbox"
+          element={
+            <MasterOnly>
+              <Suspense fallback={<Spinner />}>
+                <MasterInboxPage />
+              </Suspense>
+            </MasterOnly>
+          }
+        />
+        <Route
+          path="master/partners"
+          element={
+            <MasterOnly>
+              <Suspense fallback={<Spinner />}>
+                <MasterPartnersPage />
+              </Suspense>
+            </MasterOnly>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  )
+}

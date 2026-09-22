@@ -1,0 +1,37 @@
+{
+  "name": "miraeailab-ax-sales-os",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "미래AI랩 AX Partner OS — 컨설턴트용 AX 미팅 가이드 (1차 미팅 → 운영 OS 2차 제안 요청)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --force",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "lucide-react": "^1.47.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.18.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "oxlint": "^1.85.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "~5.9.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}
