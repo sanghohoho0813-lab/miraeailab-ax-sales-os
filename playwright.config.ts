@@ -25,8 +25,9 @@ export default defineConfig({
     env: { VITE_DATA_MODE: 'local' },
   },
   projects: [
-    { name: 'mobile', use: { ...devices['iPhone 13'] } },
-    { name: 'tablet', use: { ...devices['iPad Mini'] } },
+    // 모바일·태블릿은 Chromium 기반 기기 설명자를 쓴다 (WebKit 은 이 환경에 없다)
+    { name: 'mobile', use: { ...devices['Pixel 7'] } },
+    { name: 'tablet', use: { ...devices['Galaxy Tab S4'] } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
   ],
 })
