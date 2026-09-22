@@ -20,7 +20,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    document.title = '로그인 · AX 미팅 가이드'
+    document.title = '로그인 · AX Partner OS'
   }, [])
 
   if (status === 'ready') return <Navigate to={next} replace />
@@ -40,8 +40,8 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-paper px-4 py-10">
       <div className="w-full max-w-[460px]">
         <div className="mb-6 flex flex-col items-center text-center">
-          <BrandLogo subtitle="AX 미팅 가이드" />
-          <p className="t-body mt-3 text-ink-500">미팅 5분 전에 열고, 1차 미팅을 진행하고, 버튼 한 번으로 미래AI랩에 전달합니다.</p>
+          <BrandLogo size="lg" />
+          <p className="t-body mt-3 text-ink-500">미팅 5분 전에 열고, 1차 미팅을 진행하고, 버튼 한 번으로 김상호 대표의 운영 OS 에 전달합니다.</p>
         </div>
 
         {status === 'config_error' && (
@@ -60,7 +60,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <div className="rounded-(--radius-card) border border-line bg-white p-6">
+        <div className="rounded-(--radius-card) border border-line bg-white p-6 sm:p-7">
           {mode === 'local' ? (
             <div>
               <p className="t-section">데모 모드 — 역할을 골라 들어가세요</p>

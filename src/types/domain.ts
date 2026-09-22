@@ -449,4 +449,6 @@ export interface CurrentUser {
   email: string
   name: string
   role: PartnerRole
+  /** 호칭 (예: 팀장, 대표) — 있으면 인사말에 붙인다 */
+  title?: string
 }

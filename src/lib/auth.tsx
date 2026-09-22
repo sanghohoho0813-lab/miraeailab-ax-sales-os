@@ -32,8 +32,8 @@ const AuthContext = createContext<AuthValue | null>(null)
 const LOCAL_ROLE_KEY = 'axpartner.local_role'
 
 const LOCAL_USERS: Record<PartnerRole, CurrentUser> = {
-  partner: { id: 'local-partner', email: 'partner@example.com', name: '곽주환', role: 'partner' },
-  master: { id: 'local-master', email: 'sanghohoho0813@gmail.com', name: '김상호', role: 'master' },
+  partner: { id: 'local-partner', email: 'partner@example.com', name: '곽주환', role: 'partner', title: '팀장' },
+  master: { id: 'local-master', email: 'sanghohoho0813@gmail.com', name: '김상호', role: 'master', title: '대표' },
 }
 
 function readLocalRole(): PartnerRole | null {

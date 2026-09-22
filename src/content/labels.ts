@@ -56,10 +56,10 @@ export const INTEREST_LABEL: Record<Interest, string> = {
 export const INTEREST_ORDER: Interest[] = ['efficiency', 'customer', 'sales', 'policy_fund', 'gov_support', 'rnd', 'venture', 'unknown']
 
 export const DEGREE_OPTIONS: { value: Degree; label: string }[] = [
-  { value: 'low', label: '낮음' },
-  { value: 'mid', label: '보통' },
-  { value: 'high', label: '높음' },
-  { value: 'very_high', label: '매우 높음' },
+  { value: 'low', label: '거의 없음' },
+  { value: 'mid', label: '조금 있음' },
+  { value: 'high', label: '꽤 많음' },
+  { value: 'very_high', label: '매우 많음' },
   { value: 'unknown', label: '잘 모르겠음' },
 ]
 export const DEGREE_LABEL: Record<Degree, string> = Object.fromEntries(DEGREE_OPTIONS.map((o) => [o.value, o.label])) as Record<Degree, string>

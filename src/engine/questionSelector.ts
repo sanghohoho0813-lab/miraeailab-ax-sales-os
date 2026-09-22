@@ -1,14 +1,37 @@
 /**
  * 질문 선택 — 모든 업체에 같은 20문항을 던지지 않는다.
- * 업종·거래형태·관심사·사전진단에 따라 5~10개를 고른다.
+ * Core 4~5 + Adaptive 2~4, 최대 9개. 업종·거래형태·관심사·사전진단에 따라 고른다.
  * 정책자금 질문은 대표가 관심을 보인 경우에만 넣는다(먼저 꺼내지 않는다).
+ * 홈페이지 3분 AX Fit 에서 이미 답한 항목은 LIVE 에서 다시 묻지 않고(prefilled) 분석에는 🟡 추정으로 들어간다.
  */
 import type { Company, Question } from '../types/domain'
 import { QUESTIONS } from '../content/questions'
+import { prefillFromDiagnosis } from './diagnosis'
 
 const CORE: string[] = ['ceo_dependency', 'repetitive_work', 'info_scatter', 'current_system', 'internal_owner']
-const MAX = 10
+const MAX = 9
 const MIN = 5
+
+export interface QuestionPlan {
+  /** LIVE 에서 실제로 묻는 질문 */
+  ask: Question[]
+  /** 사전진단으로 이미 답이 있어 건너뛰는 질문 (분석에는 추정으로 포함) */
+  prefilled: { question: Question; value: string; note: string }[]
+  /** 미팅에 저장할 전체 질문 id (ask + prefilled, 우선순위 순) */
+  all: Question[]
+}
+
+export function planQuestions(company: Company): QuestionPlan {
+  const all = selectQuestions(company)
+  const prefilled: QuestionPlan['prefilled'] = []
+  const ask: Question[] = []
+  for (const q of all) {
+    const p = prefillFromDiagnosis(q, company.diagnosis)
+    if (p) prefilled.push({ question: q, value: p.value, note: p.note })
+    else ask.push(q)
+  }
+  return { ask, prefilled, all }
+}
 
 export function selectQuestions(company: Company): Question[] {
   const picked = new Map<string, Question>()

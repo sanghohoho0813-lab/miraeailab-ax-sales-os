@@ -1,26 +1,30 @@
 /**
- * LIVE — 한 화면 한 질문. CLICK 이 주인공. WHY/SAY 는 접어 둔다. 95% 클릭 입력.
- * 마지막 화면만 자유입력 1개(대표가 직접 한 중요한 말) + 선택 메모.
+ * LIVE MEETING — 포커스 모드. 헤더 "회사명 / LIVE MEETING / 3 / 7", 한 화면 한 질문, 큰 선택지.
+ * [왜 묻나요?] [이렇게 말하세요] 는 바텀시트. 떠 있는 [대표 핵심말 기록](음성 입력)과 [코치](상황별 핵심 답변 + 다음 질문).
+ * 사전진단으로 이미 답한 질문은 묻지 않고(🟡 추정으로 분석에 포함) 필요하면 시트에서 확인·수정한다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, LifeBuoy, Mic, MicOff, SkipForward, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LifeBuoy, Mic, MicOff, SkipForward, Quote, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, Meeting } from '../types/domain'
-import { Badge, Button, ChoiceGrid, Disclosure, Spinner, TextArea, useToast } from '../components/ui'
+import { Badge, Button, ChoiceGrid, Sheet, SkeletonList, TextArea, useToast } from '../components/ui'
 import { QUESTION_BY_ID } from '../content/questions'
-import { OBJECTIONS } from '../content/objections'
 import { PRICING_GUIDE, DEFERRED_GUIDE, FUNDING_GUIDE } from '../content/pricing'
 import { guardText } from '../content/forbidden'
-import { prefillFromDiagnosis, diagnosisHint } from '../engine/diagnosis'
+import { coachFor } from '../content/coach'
 import { analyzeMeeting } from '../engine/analysis'
 import { nowIso } from '../lib/util'
+import { optionLabel } from '../content/questions'
 
 type SpeechRecognitionLike = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void }
 function getSpeech(): (new () => SpeechRecognitionLike) | null {
   const w = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
+
+type SheetKind = null | 'why' | 'say' | 'quote' | 'coach' | 'prefilled'
+type CoachTab = 'now' | 'price' | 'deferred' | 'funding'
 
 export default function MeetingLivePage() {
   const { user, repo } = useSession()
@@ -31,11 +35,16 @@ export default function MeetingLivePage() {
   const [company, setCompany] = useState<Company | null>(null)
   const [cases, setCases] = useState<CaseStudy[]>([])
   const [index, setIndex] = useState(0)
-  const [help, setHelp] = useState<null | 'objections' | 'price' | 'deferred' | 'funding'>(null)
+  const [sheet, setSheet] = useState<SheetKind>(null)
+  const [coachTab, setCoachTab] = useState<CoachTab>('now')
   const [listening, setListening] = useState(false)
   const [ending, setEnding] = useState(false)
   const recRef = useRef<SpeechRecognitionLike | null>(null)
   const saveTimer = useRef<number | null>(null)
+  const meetingRef = useRef<Meeting | null>(null)
+  useEffect(() => {
+    meetingRef.current = meeting
+  }, [meeting])
 
   useEffect(() => {
     if (!meetingId) return
@@ -47,30 +56,31 @@ export default function MeetingLivePage() {
       if (!alive) return
       setCases(cs)
       setCompany(c)
+      let cur = m
       if (m.status === 'draft') {
-        const started = await repo.updateMeeting(user, { ...m, status: 'live', startedAt: nowIso() })
+        cur = await repo.updateMeeting(user, { ...m, status: 'live', startedAt: nowIso() })
         void repo.track(user, 'meeting_started', m.id, { questionCount: m.questionIds.length })
-        setMeeting(started)
-      } else {
-        setMeeting(m)
       }
-      // 답한 첫 미응답 질문으로 이동
-      const firstOpen = m.questionIds.findIndex((qid) => !m.answers[qid] || m.answers[qid].source === 'diagnosis')
-      setIndex(firstOpen < 0 ? m.questionIds.length : firstOpen)
-      document.title = `${c?.name ?? '미팅'} · 미팅 중`
+      setMeeting(cur)
+      const live = cur.questionIds.filter((qid) => cur.answers[qid]?.source !== 'diagnosis')
+      const firstOpen = live.findIndex((qid) => !cur.answers[qid] && !cur.skippedQuestionIds.includes(qid))
+      setIndex(firstOpen < 0 ? live.length : firstOpen)
+      document.title = `${c?.name ?? '미팅'} · LIVE MEETING`
     })()
     return () => {
       alive = false
     }
   }, [meetingId, repo, user])
 
-  const total = meeting?.questionIds.length ?? 0
+  /** LIVE 에서 실제로 묻는 질문 — 사전진단으로 채워진 것은 제외 */
+  const liveIds = useMemo(() => (meeting ? meeting.questionIds.filter((qid) => meeting.answers[qid]?.source !== 'diagnosis') : []), [meeting])
+  const prefilledIds = useMemo(() => (meeting ? meeting.questionIds.filter((qid) => meeting.answers[qid]?.source === 'diagnosis') : []), [meeting])
+  const total = liveIds.length
   const isFinal = index >= total
-  const qid = !isFinal && meeting ? meeting.questionIds[index] : null
+  const qid = !isFinal ? liveIds[index] : null
   const question = qid ? QUESTION_BY_ID[qid] : null
   const answer = qid && meeting ? meeting.answers[qid] : undefined
-  const prefill = useMemo(() => (question && company ? prefillFromDiagnosis(question, company.diagnosis) : null), [question, company])
-  const hint = useMemo(() => (question && company && !prefill ? diagnosisHint(question, company.diagnosis) : null), [question, company, prefill])
+  const coach = useMemo(() => (meeting ? coachFor(meeting.answers, qid) : { now: [], common: [] }), [meeting, qid])
 
   const persist = useCallback(
     (next: Meeting) => {
@@ -83,20 +93,20 @@ export default function MeetingLivePage() {
     [repo, user, toast],
   )
 
-  function choose(value: string) {
-    if (!meeting || !qid) return
+  function setAnswer(targetId: string, value: string) {
+    if (!meeting) return
     const next: Meeting = {
       ...meeting,
-      answers: { ...meeting.answers, [qid]: { questionId: qid, value, source: 'consultant', at: nowIso() } },
-      skippedQuestionIds: meeting.skippedQuestionIds.filter((x) => x !== qid),
+      answers: { ...meeting.answers, [targetId]: { questionId: targetId, value, source: 'consultant', at: nowIso() } },
+      skippedQuestionIds: meeting.skippedQuestionIds.filter((x) => x !== targetId),
     }
     persist(next)
-    void repo.track(user, 'question_answered', meeting.id, { questionId: qid, value, prefilled: Boolean(prefill) })
-    setIndex((i) => i + 1)
+    void repo.track(user, 'question_answered', meeting.id, { questionId: targetId, value })
   }
-  function confirmPrefill() {
-    if (!answer) return
-    choose(answer.value)
+  function choose(value: string) {
+    if (!qid) return
+    setAnswer(qid, value)
+    setIndex((i) => i + 1)
   }
   function skip() {
     if (!meeting || !qid) return
@@ -112,10 +122,12 @@ export default function MeetingLivePage() {
     persist(next)
     if (!has) void repo.track(user, 'question_hard', meeting.id, { questionId: qid })
   }
-  function openHelp(kind: NonNullable<typeof help>) {
-    setHelp(kind)
-    if (meeting) void repo.track(user, 'tip_opened', meeting.id, { kind, questionId: qid })
+  function openSheet(kind: Exclude<SheetKind, null>, tab?: CoachTab) {
+    setSheet(kind)
+    if (tab) setCoachTab(tab)
+    if (meeting && (kind === 'why' || kind === 'say' || kind === 'coach')) void repo.track(user, 'tip_opened', meeting.id, { kind, questionId: qid })
   }
+  const closeSheet = useCallback(() => setSheet(null), [])
 
   function toggleMic() {
     if (listening) {
@@ -131,7 +143,8 @@ export default function MeetingLivePage() {
     rec.continuous = false
     rec.onresult = (e) => {
       const text = Array.from({ length: e.results.length }, (_, i) => e.results[i][0]?.transcript ?? '').join(' ').trim()
-      if (text && meeting) persist({ ...meeting, keyQuote: `${meeting.keyQuote ? meeting.keyQuote + ' ' : ''}${text}` })
+      const m = meetingRef.current
+      if (text && m) persist({ ...m, keyQuote: `${m.keyQuote ? m.keyQuote + ' ' : ''}${text}` })
     }
     rec.onend = () => setListening(false)
     rec.onerror = () => setListening(false)
@@ -159,54 +172,62 @@ export default function MeetingLivePage() {
     }
   }
 
-  if (!meeting || !company) return <Spinner />
+  if (!meeting || !company) return <SkeletonList rows={2} />
   const quoteHits = guardText(meeting.keyQuote + '\n' + meeting.memo)
-  const answeredCount = meeting.questionIds.filter((id) => meeting.answers[id]?.source === 'consultant').length
+  const answeredCount = liveIds.filter((id) => meeting.answers[id]?.source === 'consultant').length
+  const progress = Math.round(((isFinal ? total : index) / Math.max(1, total)) * 100)
 
   return (
-    <div className="mx-auto max-w-[720px]">
-      {/* 상단 — 진행 */}
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <Link to={`/companies/${company.id}`} className="t-sub text-ink-500 hover:underline">
-          ← {company.name}
-        </Link>
-        <span className="t-sub font-bold text-ink-700" aria-live="polite">
-          {isFinal ? '마무리' : `${index + 1} / ${total}`}
-        </span>
-      </div>
-      <div className="mb-5 h-2 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
-        <div className="h-full bg-accent-600 transition-[width]" style={{ width: `${Math.round(((isFinal ? total : index) / Math.max(1, total)) * 100)}%` }} />
+    <div className="mx-auto max-w-[820px] pb-28">
+      {/* 포커스 헤더 */}
+      <div className="sticky top-0 z-30 -mx-4 border-b border-line bg-white/95 px-4 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex items-center justify-between gap-3 py-2.5">
+          <Link to={`/companies/${company.id}`} className="nav-item t-sub inline-flex items-center gap-1 rounded-(--radius-control) px-1 py-1 text-ink-500 hover:text-ink-900" aria-label="미팅 전략으로 나가기">
+            <X aria-hidden="true" className="size-4" /> 나가기
+          </Link>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3" data-testid="live-header">
+            <span className="truncate text-[1.05rem] font-bold text-ink-900">{company.name}</span>
+            <span className="text-ink-300" aria-hidden="true">
+              /
+            </span>
+            <span className="t-meta font-black tracking-[0.12em] text-accent-700">LIVE MEETING</span>
+            <span className="text-ink-300" aria-hidden="true">
+              /
+            </span>
+            <span className="tnum t-sub font-bold text-ink-700" aria-live="polite" data-testid="live-progress">
+              {isFinal ? '마무리' : `${index + 1} / ${total}`}
+            </span>
+          </div>
+        </div>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
+          <div className="h-full bg-accent-600 transition-[width] duration-300 ease-out" style={{ width: `${progress}%` }} />
+        </div>
       </div>
 
       {!isFinal && question ? (
-        <div key={question.id} className="rise">
-          <p className="t-meta font-bold tracking-wide text-accent-700">{index + 1}번 질문</p>
-          <h1 className="t-question mt-1">{question.title}</h1>
+        <div key={question.id} className="reveal pt-6 sm:pt-10">
+          <p className="t-meta font-bold tracking-wide text-accent-700">
+            {index + 1}번 질문{prefilledIds.length > 0 && index === 0 && ` · 사전진단으로 ${prefilledIds.length}개는 건너뜁니다`}
+          </p>
+          <h1 className="t-question mt-2" data-testid="live-question">
+            {question.title}
+          </h1>
 
-          {prefill && answer?.source === 'diagnosis' && (
-            <div className="mt-3 rounded-(--radius-control) border border-warn-600/30 bg-warn-50 px-4 py-3">
-              <p className="t-body font-semibold text-warn-700">🟡 {prefill.note}</p>
-              <p className="t-sub mt-1 text-ink-700">같은 질문을 다시 하지 말고, "실제로 어떤 장면에서 그런가요?" 로 여세요. 맞으면 그대로 확인, 다르면 아래에서 다시 고르세요.</p>
-              <Button variant="dark" size="md" className="mt-2" onClick={confirmPrefill} data-testid="confirm-prefill">
-                그대로 확인 ✅
-              </Button>
-            </div>
-          )}
-          {hint && <p className="t-sub mt-2 rounded-(--radius-control) bg-paper-2 px-3 py-2 text-ink-700">{hint}</p>}
-
-          <div className="mt-4">
+          <div className="mt-6">
             <ChoiceGrid columns={2} ariaLabel={question.title} options={question.options} value={answer?.source === 'consultant' ? answer.value : null} onChange={choose} />
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Disclosure label="왜 묻나요?" onOpen={() => openHelp('objections' as never)}>
-              {question.why}
-            </Disclosure>
-            <Disclosure label="어떻게 말하나요?">{question.say}</Disclosure>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button size="md" onClick={() => openSheet('why')} data-testid="open-why">
+              왜 묻나요?
+            </Button>
+            <Button size="md" onClick={() => openSheet('say')} data-testid="open-say">
+              이렇게 말하세요
+            </Button>
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-            <Button size="sm" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0}>
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+            <Button size="sm" variant="ghost" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0}>
               <ChevronLeft aria-hidden="true" className="size-4" /> 이전
             </Button>
             <div className="flex flex-wrap gap-2">
@@ -223,23 +244,21 @@ export default function MeetingLivePage() {
           </div>
         </div>
       ) : (
-        <div className="rise">
+        <div className="reveal pt-6 sm:pt-10">
           <p className="t-meta font-bold tracking-wide text-accent-700">마무리</p>
-          <h1 className="t-question mt-1">대표가 직접 한 중요한 말</h1>
-          <p className="t-body mt-1 text-ink-500">예: "내가 하루만 빠져도 직원들이 계속 전화해요." — 이 문장이 2차 제안의 첫 줄이 됩니다. 필수 자유입력은 이것 하나입니다.</p>
-          <div className="mt-3 flex items-start gap-2">
+          <h1 className="t-question mt-2">대표가 직접 한 중요한 말</h1>
+          <p className="t-body mt-2 text-ink-500">예: "내가 하루만 빠져도 직원들이 계속 전화해요." — 이 문장이 2차 제안의 첫 줄이 됩니다. 필수 자유입력은 이것 하나입니다.</p>
+          <div className="mt-4 flex items-start gap-2">
             <TextArea value={meeting.keyQuote} onChange={(e) => persist({ ...meeting, keyQuote: e.target.value })} placeholder="대표님 말을 그대로 적어 주세요" data-testid="key-quote" />
             <Button variant={listening ? 'danger' : 'secondary'} size="lg" onClick={toggleMic} aria-pressed={listening} aria-label="음성으로 입력" className="shrink-0">
               {listening ? <MicOff aria-hidden="true" className="size-5" /> : <Mic aria-hidden="true" className="size-5" />}
             </Button>
           </div>
           <div className="mt-4">
-            <Disclosure label="기타 메모 (선택)">
-              <TextArea value={meeting.memo} onChange={(e) => persist({ ...meeting, memo: e.target.value })} placeholder="내부 메모 — 고객 문서에는 노출되지 않습니다" />
-            </Disclosure>
+            <TextArea value={meeting.memo} onChange={(e) => persist({ ...meeting, memo: e.target.value })} placeholder="기타 메모 (선택) — 내부용, 고객 문서에는 노출되지 않습니다" className="min-h-20" aria-label="기타 메모" />
           </div>
           {quoteHits.length > 0 && (
-            <div role="alert" className="mt-3 rounded-(--radius-control) border border-danger-600/30 bg-danger-50 px-4 py-3">
+            <div role="alert" className="mt-3 rounded-r-(--radius-control) border-l-4 border-danger-600 bg-danger-50 px-4 py-3">
               <p className="t-body font-bold text-danger-700">⚠ 표현 수정 권장</p>
               <ul className="t-sub mt-1 space-y-1 text-ink-700">
                 {quoteHits.map((h) => (
@@ -250,90 +269,171 @@ export default function MeetingLivePage() {
               </ul>
             </div>
           )}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Badge tone="neutral">답변 {answeredCount}/{total}</Badge>
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <Badge tone="neutral">
+              답변 {answeredCount}/{total}
+            </Badge>
+            {prefilledIds.length > 0 && (
+              <button type="button" onClick={() => openSheet('prefilled')} className="nav-item tap inline-flex items-center rounded-full bg-warn-50 px-3 py-1 t-meta font-bold text-warn-700 hover:bg-warn-50/70">
+                🟡 사전진단 {prefilledIds.length} · 확인하기
+              </button>
+            )}
             {meeting.skippedQuestionIds.length > 0 && <Badge tone="warn">건너뜀 {meeting.skippedQuestionIds.length}</Badge>}
             {meeting.hardQuestionIds.length > 0 && <Badge tone="warn">어려워함 {meeting.hardQuestionIds.length}</Badge>}
           </div>
-          <div className="mt-6 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-            <Button size="sm" onClick={() => setIndex(Math.max(0, total - 1))}>
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-5">
+            <Button size="sm" variant="ghost" onClick={() => setIndex(Math.max(0, total - 1))}>
               <ChevronLeft aria-hidden="true" className="size-4" /> 질문으로
             </Button>
             <Button variant="primary" size="lg" onClick={() => void endMeeting()} disabled={ending} data-testid="end-meeting">
-              {ending ? '분석 중…' : '미팅 종료 · 분석하기'}
+              {ending ? '분석 중…' : '미팅 마무리'}
             </Button>
           </div>
         </div>
       )}
 
-      {/* 도움말 — 상황별 답변 / 가격 / 후불 / 자금 */}
-      <button type="button" onClick={() => openHelp('objections')} className="tap fixed right-4 bottom-24 z-40 inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) lg:bottom-8" aria-haspopup="dialog">
-        <LifeBuoy aria-hidden="true" className="size-5" /> 도움말
-      </button>
-      {help && (
-        <div role="dialog" aria-modal="true" aria-label="미팅 도움말" className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/40 lg:items-center" onClick={() => setHelp(null)}>
-          <div className="rise max-h-[85vh] w-full max-w-[720px] overflow-y-auto rounded-t-(--radius-card) bg-white p-5 lg:rounded-(--radius-card)" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ['objections', '상황별 답변'],
-                    ['price', '가격'],
-                    ['deferred', '후불'],
-                    ['funding', '정책자금'],
-                  ] as const
-                ).map(([k, label]) => (
-                  <button key={k} type="button" onClick={() => openHelp(k)} aria-pressed={help === k} className={`tap rounded-full px-3 py-1.5 text-[0.95rem] font-bold ${help === k ? 'bg-ink-900 text-white' : 'bg-paper-2 text-ink-700'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button type="button" onClick={() => setHelp(null)} aria-label="닫기" className="tap rounded-full p-2 hover:bg-paper-2">
-                <X aria-hidden="true" className="size-5" />
-              </button>
-            </div>
-            {help === 'objections' && (
-              <ul className="space-y-3">
-                {OBJECTIONS.map((o) => (
-                  <li key={o.id} className="rounded-(--radius-control) border border-line p-3">
-                    <p className="t-meta font-bold text-ink-500">고객: "{o.customerSays}"</p>
-                    <p className="t-body mt-1 font-semibold">{o.answer}</p>
-                    <p className="t-sub mt-1 text-accent-800">다음 질문: {o.nextQuestion}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {help === 'price' && (
-              <div className="space-y-3">
-                <p className="t-section">{PRICING_GUIDE.title}</p>
-                <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{PRICING_GUIDE.script}</p>
-                <ul className="t-sub list-disc space-y-0.5 pl-5 text-ink-700">
-                  {PRICING_GUIDE.rules.map((r) => (
-                    <li key={r}>{r}</li>
+      {/* 떠 있는 버튼 — 대표 핵심말 기록 · 코치 */}
+      <div className="pb-safe fixed right-4 bottom-4 z-40 flex flex-col items-end gap-2 sm:right-6 sm:bottom-6">
+        {!isFinal && (
+          <button type="button" onClick={() => openSheet('quote')} data-testid="open-quote" className="btn inline-flex items-center gap-2 rounded-full bg-accent-600 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-accent-700" aria-haspopup="dialog">
+            <Quote aria-hidden="true" className="size-5" /> 대표 핵심말 기록
+            {meeting.keyQuote.trim() && <span className="ml-1 inline-flex size-2 rounded-full bg-white" aria-label="기록 있음" />}
+          </button>
+        )}
+        <button type="button" onClick={() => openSheet('coach', 'now')} data-testid="open-coach" className="btn inline-flex items-center gap-2 rounded-full bg-ink-900 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-ink-700" aria-haspopup="dialog">
+          <LifeBuoy aria-hidden="true" className="size-5" /> 코치{coach.now.length > 0 && <span className="tnum ml-0.5 rounded-full bg-accent-600 px-1.5 text-[0.75rem]">{coach.now.length}</span>}
+        </button>
+      </div>
+
+      {/* 시트 — 왜 묻나요 / 이렇게 말하세요 */}
+      <Sheet open={sheet === 'why'} onClose={closeSheet} title="왜 묻나요?" testId="sheet-why">
+        <p className="t-body text-ink-900">{question?.why}</p>
+      </Sheet>
+      <Sheet open={sheet === 'say'} onClose={closeSheet} title="이렇게 말하세요" testId="sheet-say">
+        <p className="text-[1.15rem] font-semibold leading-relaxed text-ink-900">"{question?.say}"</p>
+        <p className="t-sub mt-3 text-ink-500">정확한 숫자를 캐묻지 않습니다. 방향과 강도를 먼저 듣고, 선택지에서 고릅니다.</p>
+      </Sheet>
+
+      {/* 시트 — 대표 핵심말 기록 */}
+      <Sheet open={sheet === 'quote'} onClose={closeSheet} title="대표 핵심말 기록" testId="sheet-quote">
+        <p className="t-sub text-ink-500">대표님이 직접 한 말을 그대로. 음성 버튼을 누르고 말하면 받아 적습니다. 마무리 화면에서 다시 고칠 수 있습니다.</p>
+        <div className="mt-3 flex items-start gap-2">
+          <TextArea value={meeting.keyQuote} onChange={(e) => persist({ ...meeting, keyQuote: e.target.value })} placeholder='예: "내가 하루만 빠져도 직원들이 계속 전화해요"' data-testid="quote-input" />
+          <Button variant={listening ? 'danger' : 'secondary'} size="lg" onClick={toggleMic} aria-pressed={listening} aria-label="음성으로 입력" className="shrink-0" data-testid="mic">
+            {listening ? <MicOff aria-hidden="true" className="size-5" /> : <Mic aria-hidden="true" className="size-5" />}
+          </Button>
+        </div>
+        {quoteHits.length > 0 && (
+          <p role="alert" className="t-sub mt-3 rounded-(--radius-control) bg-danger-50 px-3 py-2 font-semibold text-danger-700">
+            ⚠ 표현 수정 권장: {quoteHits.map((h) => `"${h.phrase}"`).join(', ')}
+          </p>
+        )}
+        <div className="mt-4 flex justify-end">
+          <Button variant="primary" onClick={closeSheet}>
+            저장하고 계속
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* 시트 — 사전진단으로 채운 항목 확인 */}
+      <Sheet open={sheet === 'prefilled'} onClose={closeSheet} title="사전진단으로 미리 채운 항목" testId="sheet-prefilled">
+        <p className="t-sub text-ink-500">홈페이지 3분 AX Fit 에서 대표님이 체크한 값입니다. 미팅에서 다르게 확인했다면 여기서 고칩니다. 그대로 두면 분석에 🟡 추정으로 들어갑니다.</p>
+        <ul className="mt-3 space-y-4">
+          {prefilledIds.map((id) => {
+            const q = QUESTION_BY_ID[id]
+            const a = meeting.answers[id]
+            if (!q) return null
+            return (
+              <li key={id}>
+                <p className="t-body font-bold">{q.title}</p>
+                <p className="t-meta text-warn-700">🟡 {optionLabel(q, a?.value ?? '')}</p>
+                <div className="mt-2">
+                  <ChoiceGrid columns={2} ariaLabel={q.title} options={q.options} value={a?.source === 'consultant' ? a.value : null} onChange={(v) => setAnswer(id, v)} />
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </Sheet>
+
+      {/* 시트 — Contextual Sales Coach */}
+      <Sheet open={sheet === 'coach'} onClose={closeSheet} title="세일즈 코치" wide testId="sheet-coach">
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {(
+            [
+              ['now', '지금 상황'],
+              ['price', '가격'],
+              ['deferred', '후불'],
+              ['funding', '정책자금'],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setCoachTab(k)} aria-pressed={coachTab === k} className={`nav-item tap rounded-full px-3.5 py-1.5 text-[0.95rem] font-bold ${coachTab === k ? 'bg-ink-900 text-white' : 'bg-paper-2 text-ink-700 hover:bg-line'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {coachTab === 'now' && (
+          <div className="space-y-5">
+            {coach.now.length > 0 && (
+              <div>
+                <p className="t-meta font-black tracking-wide text-accent-800">지금 흐름에서 나올 만한 상황</p>
+                <ul className="mt-2 space-y-2.5">
+                  {coach.now.map((t) => (
+                    <li key={t.id} className="rounded-r-(--radius-control) border-l-4 border-accent-600 bg-accent-50/60 px-4 py-3" data-testid="coach-now">
+                      <p className="t-meta font-bold text-ink-500">
+                        {t.situation}
+                        {t.because && <span className="ml-1 text-accent-800">· {t.because}</span>}
+                      </p>
+                      <p className="t-body mt-1 font-semibold text-ink-900">{t.answer}</p>
+                      <p className="t-sub mt-1 text-accent-800">다음 질문: {t.next}</p>
+                    </li>
                   ))}
                 </ul>
               </div>
             )}
-            {help === 'deferred' && (
-              <div className="space-y-3">
-                <p className="t-section">{DEFERRED_GUIDE.title}</p>
-                <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{DEFERRED_GUIDE.script}</p>
-                <p className="t-sub text-ink-700">{DEFERRED_GUIDE.principle}</p>
-                <p className="t-sub text-danger-700">먼저 꺼내지 않는 말: {DEFERRED_GUIDE.doNotSayFirst.map((s) => `"${s}"`).join(' · ')}</p>
-              </div>
-            )}
-            {help === 'funding' && (
-              <div className="space-y-3">
-                <p className="t-section">{FUNDING_GUIDE.title}</p>
-                <p className="t-body font-semibold">{FUNDING_GUIDE.flow.join(' → ')}</p>
-                <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{FUNDING_GUIDE.script}</p>
-                <p className="t-sub text-ink-700">{FUNDING_GUIDE.principle}</p>
-                <p className="t-meta text-ink-500">{FUNDING_GUIDE.disclaimer}</p>
-              </div>
-            )}
+            <div>
+              <p className="t-meta font-black tracking-wide text-ink-500">자주 나오는 상황</p>
+              <ul className="mt-2 divide-y divide-line rounded-(--radius-control) border border-line">
+                {coach.common.map((t) => (
+                  <li key={t.id} className="px-4 py-3">
+                    <p className="t-meta font-bold text-ink-500">{t.situation}</p>
+                    <p className="t-body mt-0.5 font-semibold">{t.answer}</p>
+                    <p className="t-sub mt-0.5 text-accent-800">다음 질문: {t.next}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+        {coachTab === 'price' && (
+          <div className="space-y-3">
+            <p className="t-section">{PRICING_GUIDE.title}</p>
+            <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{PRICING_GUIDE.script}</p>
+            <ul className="t-sub list-disc space-y-0.5 pl-5 text-ink-700">
+              {PRICING_GUIDE.rules.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {coachTab === 'deferred' && (
+          <div className="space-y-3">
+            <p className="t-section">{DEFERRED_GUIDE.title}</p>
+            <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{DEFERRED_GUIDE.script}</p>
+            <p className="t-sub text-ink-700">{DEFERRED_GUIDE.principle}</p>
+            <p className="t-sub text-danger-700">먼저 꺼내지 않는 말: {DEFERRED_GUIDE.doNotSayFirst.map((s) => `"${s}"`).join(' · ')}</p>
+          </div>
+        )}
+        {coachTab === 'funding' && (
+          <div className="space-y-3">
+            <p className="t-section">{FUNDING_GUIDE.title}</p>
+            <p className="t-body font-semibold">{FUNDING_GUIDE.flow.join(' → ')}</p>
+            <p className="t-body rounded-(--radius-control) bg-paper-2 p-3 font-semibold">{FUNDING_GUIDE.script}</p>
+            <p className="t-sub text-ink-700">{FUNDING_GUIDE.principle}</p>
+            <p className="t-meta text-ink-500">{FUNDING_GUIDE.disclaimer}</p>
+          </div>
+        )}
+      </Sheet>
     </div>
   )
 }

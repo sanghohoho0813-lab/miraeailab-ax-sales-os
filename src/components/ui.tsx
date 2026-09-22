@@ -1,7 +1,8 @@
 /**
  * 공통 UI — 큰 글자·큰 버튼·과도한 카드 금지. 홈페이지·운영 OS 의 Tailwind 패턴을 따르되 브랜드 토큰을 쓴다.
  */
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { EvidenceStatus, Level } from '../types/domain'
 import { EVIDENCE_LABEL, LEVEL_LABEL } from '../content/labels'
 
@@ -16,13 +17,13 @@ const VARIANT: Record<Variant, string> = {
   dark: 'bg-ink-900 text-white border border-ink-900 hover:bg-ink-700',
 }
 const SIZE: Record<Size, string> = {
-  sm: 'h-10 px-3 t-sub gap-1.5',
-  md: 'h-12 px-4 t-body gap-2',
-  lg: 'h-14 px-5 text-[1.1rem] gap-2',
+  sm: 'h-10 px-3 text-[0.92rem] gap-1.5',
+  md: 'h-12 px-4 text-[1rem] gap-2',
+  lg: 'h-14 px-6 text-[1.1rem] gap-2',
 }
 export function Button({ variant = 'secondary', size = 'md', className = '', type = 'button', children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size; children: ReactNode }) {
   return (
-    <button type={type} className={`inline-flex shrink-0 cursor-pointer items-center justify-center rounded-(--radius-control) font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT[variant]} ${SIZE[size]} ${className}`} {...rest}>
+    <button type={type} className={`btn inline-flex shrink-0 cursor-pointer items-center justify-center rounded-(--radius-control) font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT[variant]} ${SIZE[size]} ${className}`} {...rest}>
       {children}
     </button>
   )
@@ -57,8 +58,8 @@ export function ChoiceGrid<T extends string>({
             role={multi ? 'checkbox' : 'radio'}
             aria-checked={on}
             onClick={() => onChange(o.value)}
-            className={`tap flex min-h-14 flex-col items-start justify-center rounded-(--radius-control) border-2 px-4 py-3 text-left transition-colors ${
-              on ? 'border-accent-600 bg-accent-50 text-ink-900' : 'border-line bg-white text-ink-900 hover:border-line-strong'
+            className={`choice tap flex min-h-14 flex-col items-start justify-center rounded-(--radius-control) border-2 px-4 py-3 text-left ${
+              on ? 'border-accent-600 bg-accent-50 text-ink-900' : 'border-line bg-white text-ink-900 hover:border-accent-200 hover:bg-accent-50/40'
             }`}
           >
             <span className="text-[1.05rem] font-bold leading-snug">{o.label}</span>
@@ -121,7 +122,7 @@ export function LevelBadge({ level }: { level: Level }) {
 /* ── 구역 ─────────────────────────────────────────────────── */
 export function Section({ title, sub, action, children, className = '' }: { title: string; sub?: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-(--radius-card) border border-line bg-white p-4 sm:p-5 ${className}`}>
+    <section className={`rounded-(--radius-card) border border-line bg-white p-4 sm:p-5 lg:p-6 ${className}`}>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="t-section">{title}</h2>
@@ -212,4 +213,138 @@ export function useToast(): ToastCtx {
   const ctx = useContext(ToastContext)
   if (!ctx) throw new Error('useToast 는 ToastProvider 안에서만 사용할 수 있습니다.')
   return ctx
+}
+
+/* ── 스켈레톤 ─────────────────────────────────────────────── */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div aria-hidden="true" className={`skeleton ${className}`} />
+}
+export function SkeletonList({ rows = 3, lines = 2 }: { rows?: number; lines?: number }) {
+  return (
+    <div role="status" aria-label="불러오는 중" className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="rounded-(--radius-card) border border-line bg-white p-4">
+          <Skeleton className="h-5 w-2/5" />
+          {Array.from({ length: lines }).map((_, j) => (
+            <Skeleton key={j} className={`mt-2 h-4 ${j % 2 ? 'w-3/5' : 'w-4/5'}`} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── 숫자 카운트업 (KPI) — 450~800ms, 1회 ───────────────── */
+export function useCountUp(target: number, duration = 600): number {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduce || target === 0) {
+      setValue(target)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / duration)
+      const eased = 1 - Math.pow(1 - p, 3)
+      setValue(Math.round(target * eased))
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
+export function Stat({ label, value, unit = '', hint, tone = 'kpi' }: { label: string; value: number; unit?: string; hint?: string; tone?: 'kpi' | 'accent' }) {
+  const v = useCountUp(value)
+  return (
+    <div>
+      <p className="t-sub font-semibold text-ink-500">{label}</p>
+      <p className={`t-kpi mt-1 ${tone === 'accent' ? 'text-accent-700' : 'text-kpi'}`}>
+        {v}
+        {unit && <span className="ml-1 text-[1.1rem] font-bold text-ink-500">{unit}</span>}
+      </p>
+      {hint && <p className="t-meta mt-1 text-ink-500">{hint}</p>}
+    </div>
+  )
+}
+
+/* ── 시트 / 모달 — 모바일은 바텀시트, PC 는 가운데 모달. 닫힘 시 스크롤·포커스 복원 ── */
+export function Sheet({ open, onClose, title, children, wide = false, testId }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; testId?: string }) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const lastActive = useRef<Element | null>(null)
+  useEffect(() => {
+    if (!open) return
+    lastActive.current = document.activeElement
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const first = panelRef.current?.querySelector<HTMLElement>('button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])')
+    first?.focus()
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+      const el = lastActive.current as HTMLElement | null
+      if (el && typeof el.focus === 'function') el.focus()
+    }
+  }, [open, onClose])
+  if (!open) return null
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" data-testid={testId}>
+      <div className="backdrop-enter absolute inset-0 bg-ink-900/45" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`sheet-enter relative flex max-h-[88dvh] w-full flex-col rounded-t-[22px] bg-white shadow-(--shadow-sheet) sm:rounded-(--radius-card) ${wide ? 'sm:max-w-[820px]' : 'sm:max-w-[600px]'}`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+          <h2 className="t-section truncate">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="닫기" className="nav-item tap inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-500 hover:bg-paper-2">
+            ✕
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto px-5 py-4">{children}</div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/* ── 레이아웃 변주: 플랫 구역·강조 스트립·하이라이트 인사이트 ───── */
+export function FlatSection({ title, sub, action, children, className = '' }: { title: string; sub?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={className}>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="t-section">{title}</h2>
+          {sub && <p className="t-sub mt-0.5 text-ink-500">{sub}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+export function AccentStrip({ label, children, tone = 'accent' }: { label?: string; children: ReactNode; tone?: 'accent' | 'ok' | 'warn' | 'info' }) {
+  const border = { accent: 'border-accent-600', ok: 'border-ok-600', warn: 'border-warn-600', info: 'border-info-600' }[tone]
+  const bg = { accent: 'bg-accent-50', ok: 'bg-ok-50', warn: 'bg-warn-50', info: 'bg-info-50' }[tone]
+  return (
+    <div className={`rounded-r-(--radius-control) border-l-4 ${border} ${bg} px-4 py-3`}>
+      {label && <p className="t-meta font-black tracking-wide text-ink-500">{label}</p>}
+      <div className="t-body text-ink-900">{children}</div>
+    </div>
+  )
+}
+export function Insight({ children }: { children: ReactNode }) {
+  return (
+    <blockquote className="rounded-(--radius-card) bg-ink-900 px-5 py-4 text-white">
+      <p className="text-[1.1rem] font-semibold leading-relaxed">{children}</p>
+    </blockquote>
+  )
 }

@@ -211,6 +211,7 @@ describe('브리핑·전달 패킷', () => {
     const p = buildHandoffPayload(c, m, a, user, CASE_SEED)
     expect(p.internalNotes).toContain('내부')
     expect(p.clientSafeSummary.join(' ')).not.toContain('매우 높음')
+    expect(p.clientSafeSummary.join(' ')).not.toContain('매우 많음')
     expect(p.answers.length).toBe(m.questionIds.length)
     expect(p.usage.durationSec).toBe(1800)
     const safe = buildCustomerSafeEventPayload(p)

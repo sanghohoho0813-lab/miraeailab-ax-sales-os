@@ -6,6 +6,7 @@ import { Spinner } from './components/ui'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import CompaniesPage from './pages/CompaniesPage'
+import MeetingsPage from './pages/MeetingsPage'
 import CompanyNewPage from './pages/CompanyNewPage'
 import CompanyPage from './pages/CompanyPage'
 import MeetingLivePage from './pages/MeetingLivePage'
@@ -59,6 +60,7 @@ export default function App() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="meetings" element={<MeetingsPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="companies/new" element={<CompanyNewPage />} />
         <Route path="companies/:companyId" element={<CompanyPage />} />

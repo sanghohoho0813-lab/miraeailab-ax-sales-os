@@ -1,18 +1,69 @@
 import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { THEMES, useTheme } from '../lib/theme'
+import { DEVICE_VIEWS, useDeviceView } from '../lib/deviceView'
 import { Button, PageTitle, Section, Badge } from '../components/ui'
 import { resetLocalStore } from '../data/localRepository'
 
 export default function SettingsPage() {
   const { user, mode, signOut, signInLocal } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const { view, setView, isDesktop } = useDeviceView()
   const navigate = useNavigate()
   useEffect(() => {
-    document.title = '설정 · AX 미팅 가이드'
+    document.title = '설정 · AX Partner OS'
   }, [])
   return (
-    <div className="space-y-4">
-      <PageTitle title="설정 · 프로필" />
+    <div className="mx-auto max-w-[880px] space-y-5">
+      <PageTitle title="설정" sub="테마와 화면 보기는 이 브라우저에만 저장됩니다." />
+      <Section title="테마" sub="기본은 Pure White · 미래AI랩. 테마는 사이드바·주 색·선택·KPI 강조만 바꿉니다.">
+        <div role="radiogroup" aria-label="테마" className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {THEMES.map((t) => {
+            const on = theme === t.id
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                data-testid={`theme-${t.id}`}
+                onClick={() => setTheme(t.id)}
+                className={`choice tap flex items-center gap-3 rounded-(--radius-control) border-2 px-3 py-3 text-left ${on ? 'border-accent-600 bg-accent-50' : 'border-line bg-white hover:border-accent-200'}`}
+              >
+                <span aria-hidden="true" className="flex shrink-0 overflow-hidden rounded-[8px] border border-line">
+                  <span className="block h-9 w-5" style={{ background: t.swatch.side }} />
+                  <span className="block h-9 w-9 bg-white" />
+                  <span className="block h-9 w-3" style={{ background: t.swatch.accent }} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[1rem] font-bold leading-tight">{t.label}</span>
+                  <span className="t-meta block text-ink-500">{t.desc}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </Section>
+      {isDesktop && (
+        <Section title="화면 보기 (Device View)" sub="PC 에서 미팅 화면을 폰 크기로 함께 확인할 때 씁니다. 헤더에서도 바꿀 수 있습니다.">
+          <div role="radiogroup" aria-label="Device View" className="grid gap-2.5 sm:grid-cols-3">
+            {DEVICE_VIEWS.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                role="radio"
+                aria-checked={view === d.id}
+                onClick={() => setView(d.id)}
+                className={`choice tap rounded-(--radius-control) border-2 px-4 py-3 text-left ${view === d.id ? 'border-accent-600 bg-accent-50' : 'border-line bg-white hover:border-accent-200'}`}
+              >
+                <span className="block text-[1rem] font-bold">{d.label}</span>
+                <span className="t-meta block text-ink-500">{d.hint}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
       <Section title="내 정보">
         <dl className="t-body grid gap-1 sm:grid-cols-[8rem_1fr]">
           <dt className="font-bold text-ink-500">이름</dt>

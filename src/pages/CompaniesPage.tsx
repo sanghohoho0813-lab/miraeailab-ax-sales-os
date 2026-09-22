@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Company, Meeting } from '../types/domain'
-import { Button, EmptyState, PageTitle, Badge, Spinner, TextInput } from '../components/ui'
+import { Button, EmptyState, PageTitle, Badge, SkeletonList, TextInput } from '../components/ui'
 import { INDUSTRY_LABEL, HEADCOUNT_LABEL, MEETING_STATUS_LABEL } from '../content/labels'
 import { formatDate } from '../lib/util'
 
@@ -14,7 +14,7 @@ export default function CompaniesPage() {
   const [q, setQ] = useState('')
 
   useEffect(() => {
-    document.title = '내 고객 · AX 미팅 가이드'
+    document.title = '고객 · AX Partner OS'
     let alive = true
     Promise.all([repo.listCompanies(user), repo.listMeetings(user)]).then(([c, m]) => {
       if (!alive) return
@@ -31,18 +31,18 @@ export default function CompaniesPage() {
     return (companies ?? []).filter((c) => !s || c.name.replace(/\s/g, '').toLowerCase().includes(s))
   }, [companies, q])
 
-  if (!companies) return <Spinner />
+  if (!companies) return <SkeletonList rows={3} />
   const latestMeeting = (companyId: string) => meetings.find((m) => m.companyId === companyId)
 
   return (
-    <div>
+    <div className="mx-auto max-w-[1100px]">
       <PageTitle
-        title="내 고객"
+        title="고객"
         sub={user.role === 'master' ? '모든 파트너의 업체가 보입니다.' : '내가 등록하거나 담당하는 업체'}
         action={
           <Link to="/companies/new">
-            <Button variant="primary">
-              <Plus aria-hidden="true" className="size-5" /> 신규 업체
+            <Button variant="primary" size="lg">
+              <Plus aria-hidden="true" className="size-5" /> 미팅 준비 시작
             </Button>
           </Link>
         }
@@ -52,14 +52,24 @@ export default function CompaniesPage() {
         <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="회사명으로 찾기" aria-label="회사명 검색" className="pl-12" />
       </div>
       {list.length === 0 ? (
-        <EmptyState title="업체가 없습니다" body={q ? '검색어를 바꿔 보세요.' : '신규 업체를 등록해 시작하세요.'} />
+        <EmptyState
+          title={q ? '검색 결과가 없습니다' : '아직 고객이 없습니다'}
+          body={q ? '검색어를 바꿔 보세요.' : '미팅 준비를 시작하면 여기에 고객이 쌓입니다.'}
+          action={
+            !q && (
+              <Link to="/companies/new">
+                <Button variant="primary" size="lg">미팅 준비 시작</Button>
+              </Link>
+            )
+          }
+        />
       ) : (
-        <ul className="divide-y divide-line rounded-(--radius-card) border border-line bg-white">
+        <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white">
           {list.map((c) => {
             const m = latestMeeting(c.id)
             return (
               <li key={c.id}>
-                <Link to={`/companies/${c.id}`} className="tap flex items-center gap-3 px-4 py-4 hover:bg-paper-2">
+                <Link to={`/companies/${c.id}`} className="nav-item tap flex items-center gap-3 px-4 py-4 hover:bg-paper-2">
                   <span className="min-w-0 flex-1">
                     <span className="block text-[1.05rem] font-bold">{c.name}</span>
                     <span className="t-sub block text-ink-500">
