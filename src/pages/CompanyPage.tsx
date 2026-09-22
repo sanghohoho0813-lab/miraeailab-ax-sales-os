@@ -1,7 +1,7 @@
 /**
  * BEFORE — 미팅 전략. 한 화면에서 끝난다.
  *
- * 첫 화면에 보이는 것: 회사 핵심 4가지 → 오늘 확인할 3가지 → 동종업계 사례 최대 2개 → [미팅 시작].
+ * 첫 화면에 보이는 것: 회사 핵심 4가지 → 오늘 확인할 3가지 → 동종업계 사례 최대 5개(10억 이내 우선) → [미팅 시작].
  * 질문 목록·멘트·가설·주의표현·기업자료·미팅기록은 전부 접어 둔다. 미팅 전에 읽어야 할 글은 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -12,6 +12,7 @@ import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Meeting
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
+import { PICK_LIMIT } from '../engine/caseMatcher'
 import { EvidenceList } from '../components/EvidenceList'
 import { DIAGNOSIS_GRADE_LABEL, MEETING_STATUS_LABEL } from '../content/labels'
 import { buildStrategy, strategyHash, type Strategy } from '../engine/strategy'
@@ -199,7 +200,7 @@ export default function CompanyPage() {
   const d = company.diagnosis
   const pinned = (company.pinnedCaseIds ?? []).map((id) => cases.find((c) => c.id === id)).filter((c): c is CaseStudy => Boolean(c))
   const recs = strategy.cases.filter((m) => !pinned.some((p) => p.id === m.caseStudy.id))
-  const shown = [...pinned.map((c) => ({ caseStudy: c, reason: '📌 내가 고른 사례' })), ...recs.map((m) => ({ caseStudy: m.caseStudy, reason: m.reasons.slice(0, 2).join(' · ') }))].slice(0, 2)
+  const shown = [...pinned.map((c) => ({ caseStudy: c, reason: '📌 내가 고른 사례' })), ...recs.map((m) => ({ caseStudy: m.caseStudy, reason: m.reasons.slice(0, 2).join(' · ') }))].slice(0, PICK_LIMIT)
   const approach = enhanced && enhanced.hash === hash && enhanced.approach ? enhanced.approach : strategy.approach
   const when = company.meetingAt ? `${relativeDay(company.meetingAt)} ${formatDate(company.meetingAt, true).slice(-5)}` : ''
 
@@ -258,7 +259,7 @@ export default function CompanyPage() {
         </p>
       </section>
 
-      {/* 3) 오늘 참고할 실제 사례 — 최대 2개, 동종업계 안에서만 */}
+      {/* 3) 오늘 참고할 실제 사례 — 최대 5개, 동종업계 안에서만, 10억 이내 조달을 먼저 */}
       <section className="reveal">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="t-section">오늘 참고할 실제 사례</h2>
@@ -266,6 +267,7 @@ export default function CompanyPage() {
             사례 더 찾기
           </Link>
         </div>
+        {shown.length > 0 && <p className="t-sub mt-1 text-ink-500">같은 업종에서 골랐고, 10억 이내로 조달한 사례를 먼저 보여 드립니다.</p>}
         {strategy.caseNotice && shown.length > 0 && (
           <p className="t-sub mt-2 rounded-(--radius-control) bg-warn-50 px-4 py-2.5 font-semibold text-warn-700" data-testid="case-notice">
             {strategy.caseNotice}
@@ -276,7 +278,7 @@ export default function CompanyPage() {
             {strategy.caseNotice || '같은 업종에서 검수된 사례가 아직 없습니다. 사례 없이 진행하고, 필요하면 사례 탐색에서 직접 고르세요.'}
           </p>
         ) : (
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {shown.map((x) => (
               <CaseRow key={x.caseStudy.id} c={x.caseStudy} reason={x.reason} to={`/cases/${x.caseStudy.id}?company=${company.id}`} onOpen={() => void repo.track(user, 'case_opened', null, { caseId: x.caseStudy.id, from: 'brief' })} />
             ))}

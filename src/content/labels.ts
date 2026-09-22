@@ -42,6 +42,12 @@ export const TRADE_LABEL: Record<TradeType | 'unknown', string> = {
   unknown: '잘 모르겠음',
 }
 export const TRADE_ORDER: (TradeType | 'unknown')[] = ['b2b', 'b2c', 'both', 'unknown']
+export const TRADE_HINT: Record<TradeType | 'unknown', string> = {
+  b2b: '기업·거래처에 판매',
+  b2c: '일반 소비자에게 판매',
+  both: '둘 다',
+  unknown: '미팅에서 확인',
+}
 
 export const INTEREST_LABEL: Record<Interest, string> = {
   efficiency: '업무효율',
@@ -53,7 +59,23 @@ export const INTEREST_LABEL: Record<Interest, string> = {
   venture: '벤처',
   unknown: '잘 모르겠음',
 }
-export const INTEREST_ORDER: Interest[] = ['efficiency', 'customer', 'sales', 'policy_fund', 'gov_support', 'rnd', 'venture', 'unknown']
+/**
+ * 관심사 선택지 — AX 미팅에 직접 닿는 셋만 기본으로 보여 준다. 정책자금·정부지원·벤처는 "그 밖의 관심사(선택)" 로 접는다.
+ * R&D 는 선택지에서 뺐다(값 타입과 라벨은 기존 데이터를 위해 남긴다). 문서에서 관심사를 추정해 기본으로 켜지도 않는다.
+ */
+export const INTEREST_PRIMARY: Interest[] = ['efficiency', 'customer', 'sales', 'unknown']
+export const INTEREST_EXTRA: Interest[] = ['policy_fund', 'gov_support', 'venture']
+export const INTEREST_ORDER: Interest[] = [...INTEREST_PRIMARY.filter((i) => i !== 'unknown'), ...INTEREST_EXTRA, 'unknown']
+/** 선택지 아래 한 줄 — 처음 쓰는 컨설턴트가 용어 없이 고를 수 있게 */
+export const INTEREST_HINT: Partial<Record<Interest, string>> = {
+  efficiency: '반복 업무·직원 손 줄이기',
+  customer: '거래처·고객 응대 정리',
+  sales: '영업·재구매 늘리기',
+  policy_fund: '대출·융자 관심',
+  gov_support: '지원사업·바우처 관심',
+  venture: '벤처확인 관심',
+  unknown: '미팅에서 확인',
+}
 
 export const DEGREE_OPTIONS: { value: Degree; label: string }[] = [
   { value: 'low', label: '거의 없음' },

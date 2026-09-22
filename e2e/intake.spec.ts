@@ -77,11 +77,15 @@ test.describe('지능형 등록', () => {
     await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀')
     await expect(page.getByTestId('strategy-approach')).toContainText(/오늘은/)
     await expect(page.getByRole('list', { name: '오늘 확인할 것' }).getByRole('listitem')).toHaveCount(3)
-    // 사례는 최대 2개, 전부 같은 업종, 각 카드에 추천 이유
+    // 사례는 최대 5개, 전부 같은 업종, 10억 이내가 3개 이상, 수십억은 2개 이하, 각 카드에 규모 배지
     const cs = page.getByTestId('case-row')
     const n = await cs.count()
     expect(n).toBeGreaterThan(0)
-    expect(n).toBeLessThanOrEqual(2)
+    expect(n).toBeLessThanOrEqual(5)
+    const scales = await cs.evaluateAll((els) => els.map((e) => e.getAttribute('data-scale')))
+    expect(scales.filter((x) => x === 'small').length).toBeGreaterThanOrEqual(3)
+    expect(scales.filter((x) => x === 'large').length).toBeLessThanOrEqual(2)
+    await expect(cs.first().getByTestId('case-scale')).toBeVisible()
     await expect(page.getByTestId('case-notice')).toHaveCount(0)
     await expect(page.getByTestId('question-count')).toContainText(/오늘 질문 [5-7]개 준비됨/)
     // 질문·멘트·주의는 첫 화면에 펼쳐 두지 않는다
@@ -323,13 +327,13 @@ test.describe('지능형 등록', () => {
     await expect(page.getByTestId('trash-row')).toHaveCount(0)
   })
 
-  test('전략 자동매칭 — 제조 / B2B / 11~20 / 견적·발주 신호 → 추천 이유가 있는 실제 사례 2~3개', async ({ page }) => {
+  test('전략 자동매칭 — 제조 / B2B / 11~20 / 견적·발주 신호 → 추천 이유가 있는 실제 사례 최대 5개', async ({ page }) => {
     await loginPartner(page)
     await prepareCompany(page, '매칭테스트')
     const cs = page.getByTestId('case-row')
     const n = await cs.count()
     expect(n).toBeGreaterThan(0)
-    expect(n).toBeLessThanOrEqual(2)
+    expect(n).toBeLessThanOrEqual(5)
     await expect(cs.first()).toContainText(/같은 업종|세부분야|문제 구조|규모/)
     await expect(page.locator('[data-testid="focus-item"][data-area="quote_order"]')).toHaveCount(1)
   })

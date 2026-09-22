@@ -85,7 +85,7 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
     await page.screenshot({ path: `${SHOTS}/${tag}-06-after-summary.png`, fullPage: true })
     await page.getByTestId('toggle-detail').click()
     await expect(page.getByRole('heading', { name: '핵심 문제 TOP 3' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: '추천 연구사례' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '참고할 실제 사례' })).toBeVisible()
     await expect(page.getByTestId('case-row').first()).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/${tag}-06b-after-detail.png`, fullPage: true })
 

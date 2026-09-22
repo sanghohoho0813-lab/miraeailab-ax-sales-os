@@ -13,7 +13,7 @@ import { FORBIDDEN } from '../content/forbidden'
 import { FUNDING_GUIDE } from '../content/pricing'
 import { AREA_COPY } from './analysis'
 import { buildBriefing, type Briefing } from './briefing'
-import { recommendCases, shownCases, type CaseMatch } from './caseMatcher'
+import { recommendCases, shownCases, type CaseMatch, PICK_LIMIT } from './caseMatcher'
 import { diagnosisHighlights } from './diagnosis'
 import { planQuestions, type QuestionPlan } from './questionSelector'
 import { activeEvidence, coreSummaryLine, evidenceLine } from './profile'
@@ -219,11 +219,11 @@ export function buildStrategy(input: StrategyInput): Strategy {
   const scope = scopeHypothesis(company, profile, hypotheses)
   const axDirection = focus.length ? `${AREA_COPY[focus[0].area].structure}${focus[1] ? ` → ${AREA_COPY[focus[1].area].structure}` : ''}` : AREA_COPY.ceo_dependency.structure
 
-  // 사례 3 — ① 업종 ② 문제구조 ③ 전환경로
+  // 사례 — 같은 업종 안에서 최대 5개, 10억 이내 우선(≥3) · 수십억은 최대 2개
   const fundingInterest = company.interests.some((i) => i === 'policy_fund' || i === 'gov_support' || i === 'rnd' || i === 'venture')
   const customerTouchpoint = (company.tradeType === 'b2b' || company.tradeType === 'both') && focus.some((f) => f.area === 'quote_order' || f.area === 'customer_mgmt' || f.area === 'repurchase')
   const rec = recommendCases(cases, company, focus.map((f) => f.area), {
-    limit: 2,
+    limit: PICK_LIMIT,
     areaLabel: (a) => AREA_LABEL[a],
     fundingInterest,
     customerTouchpoint,

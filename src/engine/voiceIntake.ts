@@ -49,7 +49,6 @@ const INTEREST_WORDS: [Interest, RegExp][] = [
   ['efficiency', /업무\s*효율|효율|자동화|반복\s*(?:업무|입력)|일손/],
   ['customer', /고객\s*관리|거래처\s*관리|CRM|씨알엠/],
   ['sales', /매출|영업\s*(?:확대|늘)/],
-  ['rnd', /연구소|R&D|알앤디|연구개발|연구 개발/],
   ['venture', /벤처/],
 ]
 

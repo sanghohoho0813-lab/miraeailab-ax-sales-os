@@ -31,9 +31,9 @@ export function factsToCompanyDraft(facts: ProfileFacts): Pick<CreateCompanyInpu
   const industry: Industry = facts.industry ?? 'other'
   const headcount: Headcount | 'unknown' = facts.headcountBand ?? 'unknown'
   const tradeType: TradeType | 'unknown' = facts.tradeType ?? 'unknown'
+  // 관심사는 문서에서 추정하지 않는다. 연구소·벤처 인증이 있다고 대표가 그 얘기를 하고 싶은 것은 아니다 —
+  // "R&D 관심" 이 기본으로 켜져 있으면 미팅이 AX 가 아니라 자금 얘기로 샌다. 대표가 직접 고른 값만 쓴다.
   const interests: Interest[] = []
-  if (facts.certifications.some((c) => /연구소|전담부서/.test(c))) interests.push('rnd')
-  if (facts.certifications.some((c) => /벤처/.test(c))) interests.push('venture')
   return {
     name: facts.companyName ?? '',
     industry,

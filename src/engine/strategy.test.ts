@@ -59,7 +59,7 @@ describe('Strategy Autopilot', () => {
     expect(['A', 'B', 'C', 'D']).toContain(s.scope.level)
     expect(s.scope.status).toBe('assumed')
     expect(s.cases.length).toBeGreaterThan(0)
-    expect(s.cases.length).toBeLessThanOrEqual(2)
+    expect(s.cases.length).toBeLessThanOrEqual(5)
     for (const c of s.cases) {
       expect(c.reasons.length).toBeGreaterThan(0)
       expect(c.caseStudy.reviewRequired).not.toBe(true)
@@ -88,7 +88,7 @@ describe('Strategy Autopilot', () => {
     expect(s.missingInfo[0]).toContain('직원수')
     expect(s.missingInfo[1]).toContain('거래형태')
     expect(s.hypotheses).toHaveLength(0)
-    expect(s.cases.length).toBeLessThanOrEqual(2)
+    expect(s.cases.length).toBeLessThanOrEqual(5)
     expect(s.sources.filter((x) => x.status === 'unknown').length).toBeGreaterThanOrEqual(2)
   })
   it('사전진단 NO_GO 면 범위 가설 D', () => {
@@ -115,7 +115,7 @@ describe('Case Matcher — Pool 안에서의 점수', () => {
     })
     expect(rec.pool).toBe('industry')
     expect(rec.picks.length).toBeGreaterThan(0)
-    expect(rec.picks.length).toBeLessThanOrEqual(2)
+    expect(rec.picks.length).toBeLessThanOrEqual(5)
     for (const m of rec.picks) expect(m.caseStudy.industry).toBe('manufacturing')
     const allReasons = rec.picks.flatMap((m) => m.reasons)
     expect(allReasons.some((r) => /세부분야|같은 업종|문제 구조|성장|규모/.test(r))).toBe(true)

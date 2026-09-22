@@ -12,7 +12,7 @@ import { ArrowLeft, ArrowRight, Check, Mic, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Company, FieldSources, Headcount, Industry, Interest, ProfileSource, TradeType } from '../types/domain'
 import { Button, ChoiceGrid, Field, Sheet, TextArea, TextInput, useToast, SkeletonList } from '../components/ui'
-import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_LABEL, INTEREST_ORDER, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
+import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_EXTRA, INTEREST_HINT, INTEREST_LABEL, INTEREST_PRIMARY, TRADE_HINT, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
 import { MeetingTimePicker, meetingTimeFromIso, resolveMeetingTime, type MeetingTimeValue } from '../components/MeetingTimePicker'
 import { VoiceButton, VoiceIntakeSheet, speechSupported, type VoiceApply } from '../components/VoiceIntake'
 import { normalizePhoneText } from '../engine/docParser/korean'
@@ -356,7 +356,7 @@ export default function CompanyNewPage() {
             </div>
             <div>
               <p className="t-section mb-2.5">거래형태</p>
-              <ChoiceGrid columns={2} ariaLabel="거래형태" options={TRADE_ORDER.map((v) => ({ value: v, label: TRADE_LABEL[v] }))} value={tradeType} onChange={(v) => {
+              <ChoiceGrid columns={2} ariaLabel="거래형태" options={TRADE_ORDER.map((v) => ({ value: v, label: TRADE_LABEL[v], hint: TRADE_HINT[v] }))} value={tradeType} onChange={(v) => {
                 setTradeType(v)
                 mark('tradeType')
               }} />
@@ -367,9 +367,17 @@ export default function CompanyNewPage() {
         {step === 2 && (
           <div className="mt-6 space-y-7">
             <div>
-              <p className="t-section mb-2.5">대표 관심사</p>
-              <ChoiceGrid columns={3} multi ariaLabel="대표 관심사" options={INTEREST_ORDER.map((v) => ({ value: v, label: INTEREST_LABEL[v] }))} value={interests} onChange={toggleInterest} />
-              <p className="t-meta mt-2 text-ink-500">정책자금 관심은 여기서만 표시하고, 미팅에서 먼저 꺼내지 않습니다.</p>
+              <p className="t-section mb-2.5">대표님이 요즘 가장 신경 쓰는 것</p>
+              <ChoiceGrid columns={2} multi ariaLabel="대표 관심사" options={INTEREST_PRIMARY.map((v) => ({ value: v, label: INTEREST_LABEL[v], hint: INTEREST_HINT[v] }))} value={interests} onChange={toggleInterest} />
+              <details className="mt-3 group" data-testid="interest-more">
+                <summary className="tap t-sub inline-flex cursor-pointer list-none items-center gap-1 font-semibold text-ink-500 hover:text-ink-900">
+                  <span aria-hidden="true" className="transition-transform group-open:rotate-90">▸</span> 그 밖의 관심사 <span className="t-meta font-medium">선택</span>
+                </summary>
+                <div className="mt-2.5">
+                  <ChoiceGrid columns={3} multi ariaLabel="그 밖의 관심사" options={INTEREST_EXTRA.map((v) => ({ value: v, label: INTEREST_LABEL[v], hint: INTEREST_HINT[v] }))} value={interests} onChange={toggleInterest} />
+                  <p className="t-meta mt-2 text-ink-500">자금 관심은 기록만 해 둡니다. 미팅에서 먼저 꺼내지 않습니다.</p>
+                </div>
+              </details>
             </div>
             <div>
               <p className="t-section mb-2.5">미팅 일시</p>

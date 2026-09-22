@@ -11,7 +11,10 @@
  *   3. 업종이 '기타' 이면 세부업종·제품 키워드가 실제로 겹치는 사례만
  *
  * 규칙
- *   - 기본 추천은 최대 2개. 억지로 3개를 채우지 않는다. 0개면 "사례 없음" 이 정답이다.
+ *   - 기본 추천은 최대 5개. 억지로 채우지 않는다. 0개면 "사례 없음" 이 정답이다.
+ *   - 조달 규모 조합: 5개 중 10억 이내 사례를 3개 이상(있는 만큼), 수십억(20억 이상) 조달 사례는 최대 2개.
+ *     Partner 가 만나는 회사는 5~30명이다. 수십억 조달 사례만 늘어서면 "우리 얘기가 아니다" 가 된다.
+ *     이 조합은 같은 업종 Pool 안에서만 맞춘다 — 규모를 맞추려고 타업종을 끌어오지 않는다.
  *   - 인접업종·키워드로 고른 사례는 fallback 으로 분리해서 돌려주고, 화면에 그 사실을 표시한다.
  *   - reviewRequired(검수 전) 사례는 기본 추천에서 제외한다.
  *   - 점수는 내부 정렬용이며 화면에는 자연어 이유만 보여 준다.
@@ -88,12 +91,27 @@ export interface MatchOptions {
   profile?: ProfileSignals
   /** 거래처 접점 화면이 필요한 구조(B2B + 견적·주문/거래처 관리 문제) */
   customerTouchpoint?: boolean
-  /** 기본 추천 개수 (기본 2) */
+  /** 기본 추천 개수 (기본 5) */
   limit?: number
 }
 
+/** 조달 규모 구간 — 카드 배지와 추천 조합에 같이 쓴다 */
+export type FundingScale = 'small' | 'mid' | 'large' | 'undisclosed'
+export const FUNDING_SCALE_LABEL: Record<FundingScale, string> = { small: '10억 이내', mid: '10~20억', large: '수십억 조달', undisclosed: '규모 미공개' }
+export function fundingScale(c: CaseStudy): FundingScale {
+  const v = c.fundingAmountDisclosed
+  if (v === null || v === undefined) return 'undisclosed'
+  if (v < 1_000_000_000) return 'small'
+  if (v < 2_000_000_000) return 'mid'
+  return 'large'
+}
+/** 기본 추천 5개의 규모 조합 */
+export const PICK_LIMIT = 5
+export const SMALL_MIN = 3
+export const LARGE_MAX = 2
+
 export interface CaseRecommendation {
-  /** 기본 추천 — 동종업계 안에서만, 최대 2개. 없으면 빈 배열 */
+  /** 기본 추천 — 동종업계 안에서만, 최대 5개(10억 이내 ≥3 · 수십억 ≤2, 있는 만큼). 없으면 빈 배열 */
   picks: CaseMatch[]
   /** 동종업계 사례가 하나도 없을 때만 1개. 화면에 "동종업계 사례가 없어…" 를 반드시 표시한다 */
   fallback: CaseMatch | null
@@ -238,7 +256,7 @@ export function scoreCase(c: CaseStudy, company: Company, painAreas: QuestionAre
  * 동종업계 사례가 있으면 타업종 사례는 기본 추천에 절대 올라오지 않는다.
  */
 export function recommendCases(cases: CaseStudy[], company: Company, painAreas: QuestionArea[], opts: MatchOptions): CaseRecommendation {
-  const limit = opts.limit ?? 2
+  const limit = opts.limit ?? PICK_LIMIT
   const usable = cases.filter((c) => eligible(c, opts))
 
   // 1) 같은 업종 Pool
@@ -265,9 +283,7 @@ export function recommendCases(cases: CaseStudy[], company: Company, painAreas: 
     .sort((a, b) => b.score - a.score || a.caseStudy.companyName.localeCompare(b.caseStudy.companyName, 'ko'))
 
   if (poolKind === 'industry') {
-    // 같은 업종 안에서도 아무 신호가 없는(점수가 낮은) 사례는 올리지 않는다
-    const strong = scored.filter((m) => m.score >= 4)
-    const picks = (strong.length ? strong : scored).slice(0, limit)
+    const picks = composePicks(scored, limit)
     return { picks, fallback: null, others: scored.filter((m) => !picks.includes(m)), pool: 'industry' }
   }
 
@@ -276,6 +292,31 @@ export function recommendCases(cases: CaseStudy[], company: Company, painAreas: 
   if (fb) fb.kind = 'near'
   if (fb) fb.kindLabel = MATCH_KIND_LABEL.near
   return { picks: [], fallback: fb, others: scored.slice(1), pool: fb ? poolKind : 'none' }
+}
+
+/**
+ * 점수순 목록에서 규모 조합을 맞춰 고른다.
+ *   1) 10억 이내 사례를 점수순으로 SMALL_MIN 개까지 먼저 확보한다(있는 만큼 — 없으면 억지로 채우지 않는다)
+ *   2) 남은 자리는 점수순으로 채우되 수십억(20억 이상) 사례는 LARGE_MAX 개까지만
+ *   3) 화면 순서는 다시 점수순 — 조합은 "무엇이 들어가나" 를 정하고, 순서는 "얼마나 비슷한가" 가 정한다
+ */
+export function composePicks(scored: CaseMatch[], limit = PICK_LIMIT): CaseMatch[] {
+  const picked = new Set<CaseMatch>()
+  for (const m of scored) {
+    if (picked.size >= Math.min(SMALL_MIN, limit)) break
+    if (fundingScale(m.caseStudy) === 'small') picked.add(m)
+  }
+  let large = 0
+  for (const m of scored) {
+    if (picked.size >= limit) break
+    if (picked.has(m)) continue
+    if (fundingScale(m.caseStudy) === 'large') {
+      if (large >= LARGE_MAX) continue
+      large++
+    }
+    picked.add(m)
+  }
+  return scored.filter((m) => picked.has(m))
 }
 
 /** 화면에 뿌릴 사례 목록 (기본 추천 + fallback). 억지로 채우지 않는다 */

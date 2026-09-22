@@ -140,7 +140,7 @@ export default function MeetingResultPage() {
               <Badge tone={scopeTone}>LEVEL {a.scopeLevel}</Badge> {a.scopeLabel}
             </p>
             <p className="t-sub mt-2 text-ink-700">{a.scopeReason}</p>
-            <p className="t-meta mt-2 text-ink-500">AX 필요도 {LEVEL_KO[a.axNeed]} · 실증 {LEVEL_KO[a.validationPotential]} · 자금 준비 {LEVEL_KO[a.fundingReadiness]} — 네 축을 합치지 않습니다.</p>
+            <p className="t-meta mt-2 text-ink-500">AX 필요도 {LEVEL_KO[a.axNeed]} · 효과 검증 가능성 {LEVEL_KO[a.validationPotential]} · 자금 준비 {LEVEL_KO[a.fundingReadiness]}</p>
           </div>
         </div>
 
@@ -294,11 +294,11 @@ export default function MeetingResultPage() {
             </FlatSection>
           )}
 
-          <FlatSection title="추천 연구사례" sub="📌 내가 고른 사례 → ① 같은/가까운 업종 → ② 문제구조가 비슷한 사례" action={<Link to={`/cases?company=${company.id}`} className="t-sub font-semibold text-accent-700 hover:underline">다른 사례 보기</Link>}>
+          <FlatSection title="참고할 실제 사례" sub="내가 고른 사례를 먼저, 그다음 같은 업종에서 10억 이내로 조달한 사례 위주" action={<Link to={`/cases?company=${company.id}`} className="t-sub font-semibold text-accent-700 hover:underline">다른 사례 보기</Link>}>
             {similar.length === 0 ? (
               <p className="t-body text-ink-500">추천할 사례가 없습니다.</p>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {similar.map((c) => (
                   <CaseRow key={c.id} c={c} to={`/cases/${c.id}?company=${company.id}`} onOpen={() => void repo.track(user, 'case_opened', meeting.id, { caseId: c.id, from: 'result' })} />
                 ))}

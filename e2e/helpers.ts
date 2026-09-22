@@ -23,6 +23,8 @@ export async function prepareCompany(page: Page, name = 'ABC산업', opts: { pho
   await page.getByTestId('prep-next').click()
   await expect(page.getByTestId('prep-progress')).toHaveText(/3 \/ 3/)
   await page.getByRole('checkbox', { name: '업무효율' }).click()
+  // 정책자금은 "그 밖의 관심사(선택)" 안에 접혀 있다 — 자금 흐름 검증을 위해 일부러 켠다
+  await page.getByTestId('interest-more').locator('summary').click()
   await page.getByRole('checkbox', { name: '정책자금' }).click()
   // 미팅 일시 — 기본 "오늘 · 지금"(실시간). withDate 면 +1시간 (오늘 예정으로 홈에 올라온다)
   await expect(page.getByTestId('meeting-time')).toHaveAttribute('data-mode', 'now')
@@ -55,6 +57,8 @@ export const SPEECH_MOCK = `
 /** LIVE — 적응형 질문에 큰 버튼으로 답하고(2번째는 건너뜀) 마무리 화면까지 */
 export async function answerAll(page: Page) {
   for (let i = 0; i < 12; i++) {
+    // LIVE 첫 질문이 그려지기 전에 radio 수를 세면 0 이라 바로 빠져나간다(느린 실행에서 드러난 경쟁) — 질문 또는 마무리 화면이 보일 때까지 기다린다
+    await expect(page.getByRole('radio').first().or(page.getByTestId('end-meeting'))).toBeVisible()
     if (await page.getByTestId('end-meeting').isVisible().catch(() => false)) break
     const radios = page.getByRole('radio')
     const n = await radios.count()

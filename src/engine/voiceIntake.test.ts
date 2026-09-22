@@ -45,8 +45,9 @@ describe('voice intake parser', () => {
     expect(e.headcount.status).toBe('unknown')
     expect(countFilled(e)).toBe(0)
   })
-  it('관심사', () => {
+  it('관심사 — 연구소 얘기가 나와도 R&D 관심으로 켜지 않는다', () => {
     const d = parseVoiceIntake('정책자금이랑 연구소 관심 있으시고 자동화 원하세요', NOW)
-    expect(d.interests.value).toEqual(expect.arrayContaining(['policy_fund', 'rnd', 'efficiency']))
+    expect(d.interests.value).toEqual(expect.arrayContaining(['policy_fund', 'efficiency']))
+    expect(d.interests.value).not.toContain('rnd')
   })
 })

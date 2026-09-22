@@ -3,7 +3,7 @@ import { analyzeMeeting } from './analysis'
 import { selectQuestions } from './questionSelector'
 import { buildBriefing } from './briefing'
 import { prefillFromDiagnosis } from './diagnosis'
-import { recommendCases } from './caseMatcher'
+import { fundingScale, recommendCases } from './caseMatcher'
 import { buildHandoffPayload, buildCustomerSafeEventPayload } from './handoffBuilder'
 import { guardText } from '../content/forbidden'
 import { CASE_SEED } from '../content/cases'
@@ -127,7 +127,7 @@ describe('분석 엔진', () => {
     expect(a.followupQuestions.length).toBeLessThanOrEqual(3)
     expect(a.followupQuestions.length).toBeGreaterThan(0)
     expect(a.similarCaseIds.length).toBeGreaterThan(0)
-    expect(a.similarCaseIds.length).toBeLessThanOrEqual(2)
+    expect(a.similarCaseIds.length).toBeLessThanOrEqual(5)
     expect(a.confirmedFacts.some((f) => f.source === 'ceo_quote')).toBe(true)
     expect(a.recommendedStructure[0]).toHaveProperty('problem')
     expect(a.recommendedStructure[0]).toHaveProperty('loss')
@@ -182,7 +182,7 @@ describe('유사사례 추천 — 동종업계 우선', () => {
       const rec = recommendCases(CASE_SEED, c, ['quote_order', 'customer_mgmt'], { areaLabel: label })
       expect(rec.pool, ind).toBe('industry')
       expect(rec.picks.length, ind).toBeGreaterThan(0)
-      expect(rec.picks.length, ind).toBeLessThanOrEqual(2)
+      expect(rec.picks.length, ind).toBeLessThanOrEqual(5)
       expect(rec.fallback, ind).toBeNull()
       for (const m of rec.picks) expect(m.caseStudy.industry, `${ind} 추천에 타업종 혼입`).toBe(ind)
     }
@@ -203,10 +203,22 @@ describe('유사사례 추천 — 동종업계 우선', () => {
     expect(rec.picks.some((m) => m.kind === 'sub_industry' || m.reasons.some((r) => r.includes('세부분야')))).toBe(true)
   })
 
-  it('억지로 3개를 채우지 않는다 — 최대 2개', () => {
+  it('최대 5개 — 10억 이내 사례가 3개 이상, 수십억 조달은 2개 이하 (같은 업종 안에서만)', () => {
     const c = company({ industry: 'manufacturing' })
     const rec = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: label })
-    expect(rec.picks.length).toBeLessThanOrEqual(2)
+    expect(rec.picks.length).toBe(5)
+    const scales = rec.picks.map((m) => fundingScale(m.caseStudy))
+    expect(scales.filter((x) => x === 'small').length).toBeGreaterThanOrEqual(3)
+    expect(scales.filter((x) => x === 'large').length).toBeLessThanOrEqual(2)
+    for (const m of rec.picks) expect(m.caseStudy.industry).toBe('manufacturing')
+  })
+
+  it('10억 이내 사례가 부족한 업종(물류)은 억지로 채우지 않고 타업종도 끌어오지 않는다', () => {
+    const c = company({ industry: 'logistics' })
+    const rec = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: label })
+    expect(rec.pool).toBe('industry')
+    for (const m of rec.picks) expect(m.caseStudy.industry).toBe('logistics')
+    expect(rec.picks.filter((m) => fundingScale(m.caseStudy) === 'large').length).toBeLessThanOrEqual(2)
   })
 
   it('같은 업종에 검수된 사례가 없으면 0개 또는 참고 사례 1개만, 그리고 참고라고 표시된다', () => {

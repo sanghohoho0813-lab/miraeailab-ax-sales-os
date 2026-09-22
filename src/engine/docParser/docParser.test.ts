@@ -100,7 +100,8 @@ describe('generic company document parser', () => {
     expect(parsed.evidence.find((e) => e.key === 'tradeType')!.status).toBe('assumed')
     const draft = factsToCompanyDraft(f)
     expect(draft).toMatchObject({ name: '테스트정밀', industry: 'manufacturing', headcount: '11-20', tradeType: 'b2b', representativeName: '김가상', phone: '031-000-0000' })
-    expect(draft.interests).toEqual(expect.arrayContaining(['rnd', 'venture']))
+    // 연구소·벤처 인증이 있어도 관심사를 추정해 켜지 않는다 — 대표가 직접 고른 값만 쓴다
+    expect(draft.interests).toEqual([])
   })
   it('개인정보 줄은 통째로 버린다 — 주민번호·자택 주소가 어디에도 없다', () => {
     const json = JSON.stringify(parsed)

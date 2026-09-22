@@ -25,7 +25,7 @@ import type {
 import { QUESTION_BY_ID, answerIntensity, optionLabel } from '../content/questions'
 import { AREA_LABEL, HEADCOUNT_LABEL, INDUSTRY_LABEL, SCOPE_LABEL, TRADE_LABEL } from '../content/labels'
 import { TODAYS_POINTS } from '../content/playbook'
-import { recommendCases, shownCases } from './caseMatcher'
+import { PICK_LIMIT, recommendCases, shownCases } from './caseMatcher'
 import { nowIso } from '../lib/util'
 
 /* ------------------------------------------------------------------ */
@@ -296,7 +296,7 @@ export function analyzeMeeting(company: Company, meeting: Meeting, cases: CaseSt
   /* 9) 유사사례 */
   const rec = recommendCases(cases, company, painPoints.map((p) => p.area), { growthAnswer: growth, fundingInterest: (g('funding_interest') ?? 0) >= 1, areaLabel: (a) => AREA_LABEL[a] })
   // 컨설턴트가 미팅에 쓰기로 고른 사례(pinned)를 먼저, 그다음 동종업계 추천 (없으면 없는 대로)
-  const similarCaseIds = Array.from(new Set([...(company.pinnedCaseIds ?? []).filter((id) => cases.some((c) => c.id === id)), ...shownCases(rec).map((m) => m.caseStudy.id)])).slice(0, 3)
+  const similarCaseIds = Array.from(new Set([...(company.pinnedCaseIds ?? []).filter((id) => cases.some((c) => c.id === id)), ...shownCases(rec).map((m) => m.caseStudy.id)])).slice(0, PICK_LIMIT)
 
   /* 10) CLIENT SAFE 요약 */
   const clientSafeSummary = [

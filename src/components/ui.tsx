@@ -1,7 +1,7 @@
 /**
  * 공통 UI — 큰 글자·큰 버튼·과도한 카드 금지. 홈페이지·운영 OS의 Tailwind 패턴을 따르되 브랜드 토큰을 쓴다.
  */
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EvidenceStatus, Level } from '../types/domain'
 import { EVIDENCE_LABEL, LEVEL_LABEL } from '../content/labels'
@@ -58,6 +58,9 @@ export function ChoiceGrid<T extends string>({
             type="button"
             role={multi ? 'checkbox' : 'radio'}
             aria-checked={on}
+            // 접근 가능한 이름은 라벨만 — 한 줄 설명(hint)은 이름을 늘리지 않고 설명으로 붙인다 ("B2B" 를 "B2B 기업·거래처에 판매" 로 만들지 않는다)
+            aria-label={o.label}
+            aria-description={o.hint}
             onClick={() => onChange(o.value)}
             className={`choice tap flex min-h-14 flex-col items-start justify-center rounded-(--radius-control) border-2 px-4 py-3 text-left ${
               on ? 'border-accent-600 bg-accent-50 text-ink-900' : 'border-line bg-white text-ink-900 hover:border-accent-200 hover:bg-accent-50/40'
@@ -94,7 +97,7 @@ export function Field({ label, hint, children, optional }: { label: string; hint
 }
 
 /* ── 배지 ─────────────────────────────────────────────────── */
-export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' | 'info' | 'dark'; children: ReactNode }) {
+export function Badge({ tone = 'neutral', children, ...rest }: { tone?: 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' | 'info' | 'dark'; children: ReactNode } & Omit<HTMLAttributes<HTMLSpanElement>, 'children'>) {
   const cls = {
     neutral: 'bg-paper-2 text-ink-700',
     accent: 'bg-accent-50 text-accent-800',
@@ -104,7 +107,7 @@ export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'acce
     info: 'bg-info-50 text-info-600',
     dark: 'bg-ink-900 text-white',
   }[tone]
-  return <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 t-meta font-bold ${cls}`}>{children}</span>
+  return <span {...rest} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 t-meta font-bold ${cls}`}>{children}</span>
 }
 export function EvidenceBadge({ status }: { status: EvidenceStatus }) {
   const m = EVIDENCE_LABEL[status]

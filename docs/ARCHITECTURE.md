@@ -61,7 +61,7 @@
 ## 6. 데이터 흐름 (끊기지 않는 한 줄)
 
 ```
-회사정보(4단계 클릭) → 사전전략(briefing) → 1차미팅(Core 4~5 + Adaptive 2~4, 최대 9 · 사전진단 항목 건너뜀 · 세일즈 코치) → 유사사례(matcher: 업종·문제구조·B2B/B2C·전환방식·규모↔금액구간·자금유형, reviewRequired 제외) → AX 범위 가설(analysis A~D)
+회사정보(4단계 클릭) → 사전전략(briefing) → 1차미팅(Core 4~5 + Adaptive 2~4, 최대 9 · 사전진단 항목 건너뜀 · 세일즈 코치) → 유사사례(matcher: FILTER 같은 업종 → SCORE 세부업종·문제구조·B2B/B2C·전환방식·규모↔금액구간·자금유형, reviewRequired 제외 · 기본 추천 최대 5 = 10억 이내 ≥3 + 수십억 ≤2, 같은 업종 안에서만 조합) → AX 범위 가설(analysis A~D)
  → 미팅종료 → [김상호 대표에게 2차 제안 요청] → partner_handoffs + customer_events(ax_proposal_requested)
  → 운영 OS 이벤트함 → 고객사 연결 → 2차 Value Map · 맞춤 AX · 가격/정산 · 구축 · 실증 · 성장관리 (운영 OS)
 ```
