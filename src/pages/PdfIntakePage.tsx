@@ -3,6 +3,8 @@
  *   - 원본 PDF는 어디에도 업로드하지 않는다. 구조화된 값 + 근거(페이지·원문 한 줄)만 저장한다.
  *   - 읽은 값은 바로 저장하지 않는다. 각 항목을 [수정] [사용 안 함] 할 수 있다. 잘못된 값 하나 때문에 고객을 지울 필요가 없다.
  *   - 기존 고객과 비슷하면 자동 생성하지 않고 [기존 고객에 정보 추가](항목별 기존 유지/PDF 반영) 또는 [새 고객으로 등록] 을 고른다.
+ *   - 저장을 막는 값은 회사명 하나뿐이다. 업종·인원·거래형태를 몰라도 진행할 수 있고, 모르는 값은 핵심 요약에서 바로 채울 수 있다.
+ *     (화면에 없는 값을 요구하는 검증은 만들지 않는다 — 고칠 수 없는 오류 메시지는 벽이다)
  *   - 진행 단계 표시, 취소 가능, 실패해도 막히지 않는다(직접 30초 등록 / 다른 PDF).
  */
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
@@ -12,7 +14,7 @@ import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, CompanyFieldKey, CompanyProfile, EvidenceField, FieldSources, Headcount, Industry, Interest, ProfileFacts, TradeType } from '../types/domain'
 import { Badge, Button, ChoiceGrid, EvidenceBadge, Sheet, TextInput, useToast } from '../components/ui'
 import { EvidenceList } from '../components/EvidenceList'
-import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
+import { CompanyCoreSummary, type CoreSlotKey } from '../components/CompanyCoreSummary'
 import { formatWon } from '../engine/docParser/korean'
 import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_LABEL, INTEREST_ORDER, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
 import { MeetingTimePicker, resolveMeetingTime, type MeetingTimeValue } from '../components/MeetingTimePicker'
@@ -25,6 +27,7 @@ import { formatDate } from '../lib/util'
 type Phase = 'pick' | 'working' | 'failed' | 'review' | 'merge'
 const STAGES = ['PDF 읽는 중', '기업정보 찾는 중', '실제 사례 371건과 비교 중', '미팅 전략 만드는 중'] as const
 const CORE_KEYS: CompanyFieldKey[] = ['name', 'representativeName', 'phone', 'industry', 'headcount', 'tradeType']
+const SLOT_TITLE: Record<CoreSlotKey | 'name', string> = { name: '회사명 입력', industry: '업종 선택', headcount: '근로자 수 선택', revenue: '최근 매출 입력', years: '업력 입력' }
 
 function coreLabel(k: CompanyFieldKey): string {
   return { name: '회사명', representativeName: '대표자', phone: '대표 연락처', industry: '업종', headcount: '인원', tradeType: '거래형태', interests: '관심사', meetingAt: '미팅 일시', memo: '메모' }[k]
@@ -62,6 +65,12 @@ export default function PdfIntakePage() {
   /** 기본 화면은 핵심 4가지만. [수정] 과 [추출정보 전체보기] 를 눌러야 나머지가 보인다 */
   const [editing, setEditing] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
+  /** 핵심 요약에서 빈 칸 하나만 채우는 작은 시트 ('name' 은 회사명) */
+  const [slot, setSlot] = useState<CoreSlotKey | 'name' | null>(null)
+  const [revenueInput, setRevenueInput] = useState('')
+  const [yearsInput, setYearsInput] = useState('')
+  /** 업종은 Hard Block 이 아니라 Soft Confirm — 한 번 물어보고, 그대로 진행할 수 있다 */
+  const [industryConfirm, setIndustryConfirm] = useState(false)
 
   // 중복 / 병합
   const [similar, setSimilar] = useState<Company[] | null>(null)
@@ -249,6 +258,42 @@ export default function PdfIntakePage() {
     }
   }
 
+  /** 문서에 없던 값을 직접 채운다 — 근거(evidence)로 남겨야 facts·프로필에 그대로 들어간다 */
+  function upsertEvidence(key: string, label: string, value: EvidenceField['value'], display: string) {
+    setEvidence((cur) => {
+      const next: EvidenceField = { key, label, value, display, status: 'confirmed', source: 'manual', sourcePage: null, sourceText: '컨설턴트 직접 입력', removed: false }
+      const i = cur.findIndex((e) => e.key === key)
+      if (i < 0) return [...cur, next]
+      const copy = [...cur]
+      copy[i] = next
+      return copy
+    })
+    void repo.track(user, 'profile_corrected', null, { key, action: 'filled', from: 'core_summary' })
+  }
+
+  const REVENUE_YEAR = facts?.growth.latestYear ?? new Date().getFullYear() - 1
+
+  function openSlot(k: CoreSlotKey | 'name') {
+    if (k === 'revenue') setRevenueInput('')
+    if (k === 'years') setYearsInput(facts?.yearsInBusiness ? String(facts.yearsInBusiness) : '')
+    setSlot(k)
+  }
+
+  /** 시트의 [확인] — 업종·인원·회사명은 고르는 즉시 반영되므로 닫기만 하면 된다 */
+  function applySlot() {
+    if (slot === 'revenue') {
+      const eok = Number(revenueInput.replace(/[^\d.]/g, ''))
+      if (Number.isFinite(eok) && eok > 0) {
+        const won = Math.round(eok * 100_000_000)
+        upsertEvidence(`fin_revenue_${REVENUE_YEAR}`, `${REVENUE_YEAR}년 매출액`, won, formatWon(won))
+      }
+    } else if (slot === 'years') {
+      const n = Number(yearsInput.replace(/\D/g, ''))
+      if (Number.isFinite(n) && n > 0) upsertEvidence('yearsInBusiness', '업력', n, `${n}년`)
+    }
+    setSlot(null)
+  }
+
   const toggleInterest = (v: Interest) =>
     setInterests((cur) => {
       if (v === 'unknown') return cur.includes('unknown') ? [] : ['unknown']
@@ -264,18 +309,29 @@ export default function PdfIntakePage() {
   }
 
   /* ---- 저장: 새 고객 ---- */
-  async function confirmNew() {
+  /**
+   * [이대로 준비] 를 눌렀을 때.
+   * 저장을 막는 값은 회사명 하나뿐이다. 없으면 오류만 띄우지 않고 그 자리에서 입력창을 연다.
+   * 업종은 Soft Confirm — 한 번 물어보되 [업종 없이 준비] 로 그대로 넘어갈 수 있다. 인원·거래형태는 절대 막지 않는다.
+   */
+  function requestConfirm() {
     if (!parsed || !text || !file || !facts) return
-    if (!name.trim()) return toast.show('회사명을 확인해 주세요.', 'danger')
-    if (!industry || !headcount || !tradeType) return toast.show('업종·인원·거래형태를 골라 주세요. 모르면 "잘 모르겠음".', 'danger')
+    if (!name.trim()) return openSlot('name')
+    if (!industry) return setIndustryConfirm(true)
+    void save()
+  }
+
+  async function save(industryOverride?: Industry | null) {
+    if (!parsed || !text || !file || !facts) return
+    if (!name.trim()) return openSlot('name')
     setBusy(true)
     try {
       let company = await repo.createCompany(user, {
         name: name.trim(),
-        industry,
+        industry: industryOverride ?? industry ?? 'other',
         industryNote,
-        headcount,
-        tradeType,
+        headcount: headcount ?? 'unknown',
+        tradeType: tradeType ?? 'unknown',
         interests: interests.length ? interests : ['unknown'],
         representativeName: rep.trim(),
         phone: phone.trim(),
@@ -450,8 +506,16 @@ export default function PdfIntakePage() {
           {phase === 'review' && (
             <div className="mt-5 space-y-5">
               <CompanyCoreSummary
-                company={{ name: name || '회사명을 확인해 주세요', industry: industry ?? 'other', industryNote, headcount: headcount ?? 'unknown', representativeName: rep }}
+                company={{ name, industry: industry ?? 'other', industryNote, headcount: headcount ?? 'unknown', representativeName: rep }}
                 profile={previewProfile}
+                title={
+                  name ? undefined : (
+                    <button type="button" onClick={() => openSlot('name')} className="tap cursor-pointer rounded-(--radius-control) border-2 border-dashed border-accent-600 px-3 py-1 text-[1.2rem] font-bold text-accent-700 hover:bg-accent-50" data-testid="core-fill-name">
+                      회사명 입력
+                    </button>
+                  )
+                }
+                onFill={openSlot}
                 action={
                   <Button size="sm" onClick={() => setEditing((v) => !v)} aria-expanded={editing} data-testid="core-edit">
                     <Pencil aria-hidden="true" className="size-4" /> {editing ? '닫기' : '수정'}
@@ -468,11 +532,6 @@ export default function PdfIntakePage() {
                 <Button onClick={() => setDetailOpen(true)} data-testid="open-evidence">
                   <FileText aria-hidden="true" className="size-4" /> 추출정보 전체보기 ({activeEvidence.length})
                 </Button>
-                {parsed.warnings.length > 0 && (
-                  <span className="t-meta font-semibold text-warn-700" data-testid="pdf-warning-count">
-                    ⚠ 확인 권장 {parsed.warnings.length}건
-                  </span>
-                )}
                 {removedCount > 0 && <span className="t-meta text-ink-500">사용 안 함 {removedCount}개</span>}
               </div>
 
@@ -583,7 +642,7 @@ export default function PdfIntakePage() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="primary" size="lg" onClick={() => void confirmNew()} disabled={busy} data-testid="pdf-confirm" className="flex-1 sm:flex-none">
+                <Button variant="primary" size="lg" onClick={requestConfirm} disabled={busy} data-testid="pdf-confirm" className="flex-1 sm:flex-none">
                   {busy ? '저장 중…' : '이대로 준비'}
                 </Button>
               )}
@@ -591,6 +650,92 @@ export default function PdfIntakePage() {
           </div>
         </section>
       )}
+
+      {/* 핵심 요약의 빈 칸 하나 채우기 — 기존 선택지(업종·인원)를 그대로 쓴다 */}
+      <Sheet open={slot !== null} onClose={() => setSlot(null)} title={SLOT_TITLE[slot ?? 'name']} testId="core-fill-sheet">
+        {slot === 'name' && (
+          <label className="block">
+            <span className="t-sub mb-2 block text-ink-500">PDF에서 회사명을 읽지 못했습니다. 미팅 자료에 적힌 이름 그대로 적어 주세요.</span>
+            <TextInput
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                setPdfCore((cur) => {
+                  const n = new Set(cur)
+                  n.delete('name')
+                  return n
+                })
+              }}
+              className="text-[1.2rem]"
+              data-testid="slot-name"
+              aria-label="회사명"
+            />
+          </label>
+        )}
+        {slot === 'industry' && (
+          <>
+            <p className="t-sub mb-3 text-ink-500">같은 업종 실제 사례를 찾는 데 씁니다. 정확한 분류가 아니어도 가장 가까운 것을 고르면 됩니다.</p>
+            <ChoiceGrid columns={3} ariaLabel="업종" options={INDUSTRY_ORDER.map((v) => ({ value: v, label: INDUSTRY_LABEL[v] }))} value={industry} onChange={setIndustry} />
+            {industry === 'other' && <TextInput value={industryNote} onChange={(e) => setIndustryNote(e.target.value)} placeholder="업종을 한 줄로 (선택)" aria-label="업종 메모" className="mt-3" />}
+          </>
+        )}
+        {slot === 'headcount' && (
+          <>
+            <p className="t-sub mb-3 text-ink-500">정규직 기준 대략이면 됩니다. 모르면 "잘 모르겠음" 그대로 두고 진행해도 됩니다.</p>
+            <ChoiceGrid columns={3} ariaLabel="근로자 수" options={HEADCOUNT_ORDER.map((v) => ({ value: v, label: HEADCOUNT_LABEL[v] }))} value={headcount} onChange={setHeadcount} />
+          </>
+        )}
+        {slot === 'revenue' && (
+          <label className="block">
+            <span className="t-sub mb-2 block text-ink-500">{REVENUE_YEAR}년 기준 연매출을 억원 단위로 적어 주세요. 예) 12.5</span>
+            <TextInput value={revenueInput} onChange={(e) => setRevenueInput(e.target.value)} inputMode="decimal" placeholder="억원" aria-label="최근 연매출 (억원)" data-testid="slot-revenue" className="text-[1.2rem]" />
+          </label>
+        )}
+        {slot === 'years' && (
+          <label className="block">
+            <span className="t-sub mb-2 block text-ink-500">설립 후 몇 년 되었는지 대략 적어 주세요.</span>
+            <TextInput value={yearsInput} onChange={(e) => setYearsInput(e.target.value)} inputMode="numeric" placeholder="년" aria-label="업력 (년)" data-testid="slot-years" className="text-[1.2rem]" />
+          </label>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => setSlot(null)}>닫기</Button>
+          <Button variant="primary" onClick={applySlot} data-testid="slot-apply">
+            확인
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* 업종 Soft Confirm — 막지 않는다. 고르면 사례가 붙고, 그대로 진행해도 된다 */}
+      <Sheet open={industryConfirm} onClose={() => setIndustryConfirm(false)} title="업종을 고르시겠어요?" testId="industry-confirm">
+        <p className="t-body text-ink-700">업종을 알면 같은 업종에서 실제로 바뀐 사례를 추천할 수 있습니다. 지금 모르면 그대로 진행하세요 — 미팅 중에 확인한 뒤 고쳐도 늦지 않습니다.</p>
+        <div className="mt-4">
+          <ChoiceGrid
+            columns={3}
+            ariaLabel="업종"
+            options={INDUSTRY_ORDER.map((v) => ({ value: v, label: INDUSTRY_LABEL[v] }))}
+            value={industry}
+            onChange={(v) => {
+              setIndustry(v)
+              setIndustryConfirm(false)
+              void save(v)
+            }}
+          />
+        </div>
+        <div className="mt-5">
+          <Button
+            size="lg"
+            className="w-full sm:w-auto sm:float-right"
+            onClick={() => {
+              setIndustryConfirm(false)
+              void save(null)
+            }}
+            disabled={busy}
+            data-testid="industry-skip"
+          >
+            업종 없이 준비
+          </Button>
+        </div>
+      </Sheet>
 
       {/* 추출정보 전체보기 — 기본 Journey 에서는 보이지 않는다 */}
       <Sheet open={detailOpen} onClose={() => setDetailOpen(false)} title="추출정보 전체보기" wide testId="evidence-sheet">

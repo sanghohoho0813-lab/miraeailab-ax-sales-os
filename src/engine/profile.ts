@@ -4,6 +4,7 @@
  */
 import type { Company, CompanyProfile, EvidenceField, Headcount, Industry, ProfileFacts } from '../types/domain'
 import { HEADCOUNT_LABEL, INDUSTRY_LABEL } from '../content/labels'
+import { displayIndustry } from '../content/industryText'
 import { formatWonShort } from './docParser/korean'
 
 export function emptyFacts(): ProfileFacts {
@@ -134,7 +135,13 @@ export function applyEvidence(base: ProfileFacts, evidence: EvidenceField[]): Pr
       default: {
         const m = e.key.match(/^fin_(revenue|operatingProfit|netIncome|assets|liabilities|equity)_(\d{4})$/)
         if (m) {
-          const row = f.financials.find((x) => x.year === Number(m[2]))
+          const year = Number(m[2])
+          let row = f.financials.find((x) => x.year === year)
+          // 문서에 없던 연도를 컨설턴트가 직접 채운 경우 — 행을 만들어 준다 (제외한 값이면 만들지 않는다)
+          if (!row && !gone) {
+            row = { year, revenue: null, operatingProfit: null, netIncome: null, assets: null, liabilities: null, equity: null }
+            f.financials = [...f.financials, row].sort((a, b) => a.year - b.year)
+          }
           if (row) row[m[1] as 'revenue'] = gone ? null : num(e.value)
         }
       }
@@ -169,9 +176,10 @@ export interface CoreSummary {
 export function coreSummary(company: Pick<Company, 'industry' | 'industryNote' | 'headcount' | 'representativeName'>, profile: CompanyProfile | null): CoreSummary {
   const f = profile?.facts
   const active = new Set(activeEvidence(profile).map((e) => e.key))
-  // 업종은 읽기 쉬운 이름만 — 산업분류 코드는 근거(추출정보)에 남기고 요약에는 넣지 않는다
-  const industryText = f?.subIndustry && active.has('industryText') ? f.subIndustry : company.industryNote || INDUSTRY_LABEL[company.industry]
-  const industry = industryText.replace(/\s*\([A-Z]?\d{2,6}\)\s*$/, '').trim()
+  // 업종은 읽기 쉬운 이름만 — 분류 차수·산업분류 코드는 근거(추출정보)에 남기고 요약에는 넣지 않는다.
+  // '기타' 는 업종을 아직 모른다는 뜻이므로 빈 값으로 둔다 — 화면에서 "미확인 + [선택]" 으로 보여 주기 위해서다.
+  const industryText = f?.subIndustry && active.has('industryText') ? f.subIndustry : company.industryNote || (company.industry === 'other' ? '' : INDUSTRY_LABEL[company.industry])
+  const industry = displayIndustry(industryText)
   const headcount = f?.headcount !== null && f?.headcount !== undefined && active.has('headcount') ? `${f.headcount.toLocaleString('ko-KR')}명` : company.headcount === 'unknown' ? '' : HEADCOUNT_LABEL[company.headcount]
   const latest = [...(f?.financials ?? [])].reverse().find((x) => x.revenue !== null && active.has(`fin_revenue_${x.year}`))
   const revenue = latest ? `${formatWonShort(latest.revenue)}원` : ''

@@ -231,7 +231,9 @@ export function buildStrategy(input: StrategyInput): Strategy {
   })
   // 동종업계 안에서만 고른다. 없으면 억지로 채우지 않고 참고 사례 1개 + 안내를 보여 준다
   const picked: StrategyCase[] = shownCases(rec)
-  const caseNotice = rec.picks.length === 0 && rec.fallback ? '동종업계 사례가 없어 업무구조가 비슷한 사례를 참고로 보여드립니다.' : ''
+  // 업종을 모르면 아무 사례나 붙이지 않는다 — 광고회사에 화훼 사례를 보여 주는 것보다 "사례 없음" 이 정확하다
+  const industryUnknown = company.industry === 'other' && !company.industryNote.trim() && !profile?.facts.subIndustry
+  const caseNotice = rec.picks.length === 0 && rec.fallback ? '동종업계 사례가 없어 업무구조가 비슷한 사례를 참고로 보여드립니다.' : picked.length === 0 && industryUnknown ? '업종을 확인하면 같은 업종의 실제 사례를 추천할 수 있습니다. 지금은 업종 정보가 없어 사례를 붙이지 않았습니다.' : ''
 
   // 멘트 — 상황별 1~2문장 + 다음 질문 1개
   const primaryCase = picked[0]?.caseStudy
@@ -241,7 +243,7 @@ export function buildStrategy(input: StrategyInput): Strategy {
     {
       key: 'case',
       title: 'CASE — 사례를 꺼낼 때',
-      say: primaryCase ? `${primaryCase.industry === company.industry ? '같은 업종' : '비슷한 문제 구조'}에서 ${primaryCase.problem ? primaryCase.problem.split(/[.。]/)[0].slice(0, 40) : '이런 업무'} 를 데이터화한 실제 사례가 있습니다. 회사와 다른 점도 함께 말씀드리겠습니다.` : '같은 업종에서 이런 업무를 데이터화한 실제 사례가 있습니다.',
+      say: primaryCase ? `${primaryCase.industry === company.industry ? '같은 업종' : '비슷한 문제 구조'}에서 ${primaryCase.problem ? primaryCase.problem.split(/[.。]/)[0].slice(0, 40) : '이런 업무'} 를 데이터화한 실제 사례가 있습니다. 회사와 다른 점도 함께 말씀드리겠습니다.` : '오늘 들은 내용을 정리해서, 같은 업종에서 실제로 바뀐 사례를 2차 제안 때 찾아 오겠습니다.',
       next: '대표님 회사에서는 이 장면이 어디에서 제일 자주 생기나요?',
     },
   ]

@@ -73,10 +73,24 @@
 - `partner_meeting_events` = 건너뛴 질문 · 어려워한 질문 · 열어본 팁/사례 · 소요시간 · 전달 — V1 이후 10건 검증용.
 
 
+## 입력 검증 계약 (깨지 말 것)
+
+> **Blocking Validation 이 있다면, 사용자가 그 값을 지금 보고 있는 화면에서 해결할 수 있어야 한다.**
+
+값을 요구하는 오류를 띄우려면 같은 화면에 그 값을 넣는 UI 가 있어야 한다. 없으면 오류 대신 **입력 수단을 연다.**
+화면을 단순화하면서 입력 UI 를 접거나 지울 때는 그 필드를 검증에서도 같이 내려야 한다(Request 5 → 6 에서 실제로 깨진 지점).
+
+- 저장을 막는 값은 최소로 — PDF Quick Review 는 **회사명 하나**.
+- 모르는 값은 기존 Domain 값(`'unknown'`, `'other'`)으로 안전 저장한다. 새 Enum 을 만들지 않는다.
+- 꼭 물어야 하면 Hard Block 이 아니라 **Soft Confirm**: 한 번 묻되 버튼을 `disabled` 하지 않고, 그대로 진행할 길을 함께 둔다.
+- 값이 비었다고 화면에서 필드를 숨기지 않는다. `미확인 + [선택]/[입력]` 로 무엇을 모르는지 보여 주고 그 자리에서 채우게 한다(`CompanyCoreSummary`).
+- 모르는 값 때문에 엉뚱한 결과를 만들지 않는다 — 업종 미확인이면 사례 추천은 0개가 정답이다.
+
 ## UI 셸 · 테마 · Device View (2026-09 업그레이드)
 
 - `src/index.css` — 토큰. 테마가 바꾸는 값은 `--th-*` 변수이고 `@theme inline` 으로 Tailwind 유틸리티(`bg-accent-600`, `bg-side` …)에 연결된다. 기본 Pure White, 나머지 6개는 `[data-theme=…]`.
 - `src/lib/theme.tsx` · `src/lib/deviceView.tsx` · `src/lib/clock.ts` — 테마/Device View 는 localStorage 에 저장(브라우저별), 시계는 1초 틱(초 경계 정렬).
 - `src/components/AppShell.tsx` — 그룹 사이드바(WORK/KNOWLEDGE/SYSTEM/MASTER, 272px) · 글로벌 헤더(라우트 제목 · 실시간 시계 · Device View · 사용자) · 하단 내비 5 · LIVE 포커스 모드(레일만).
+  헤더 시계는 어떤 폭에서도 **날짜·요일·초 단위 시각**을 함께 보여 준다(좁으면 두 줄 `2026.09.22 화` / `13:31:08`, 넓으면 한 줄). 엘리먼트는 하나이고 폭에 따라 CSS 로 접는다 — 타이머는 `useClock()` 하나뿐.
 - `src/components/DeviceFrame.tsx` — PC+Mobile 듀얼 뷰는 같은 앱을 390px iframe 으로 띄운다(`window.self !== window.top` 이면 프레임 모드 → 다시 프레임을 만들지 않음). 부모↔프레임 라우트는 postMessage 로 동기화하고 저장소(localStorage/Supabase 세션)는 같은 출처라 공유된다.
 - 실제 사례 DB — `src/content/research-cases.json`(리서치 PDF 파싱 결과) → `src/content/cases.ts` 에서 `CaseStudy` 로 조립(설명 포인트·주의는 `caseText.ts` 가 사실 필드에서만 생성). 저장소는 이 청크를 필요할 때만 동적 import 한다.

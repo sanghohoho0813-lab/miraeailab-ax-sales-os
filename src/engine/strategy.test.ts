@@ -3,7 +3,7 @@ import { buildHypotheses, buildStrategy, strategyHash } from './strategy'
 import { recommendCases } from './caseMatcher'
 import { CASE_SEED } from '../content/cases'
 import { AREA_LABEL } from '../content/labels'
-import { emptyFacts } from './profile'
+import { coreSummary, emptyFacts } from './profile'
 import type { Company, CompanyProfile } from '../types/domain'
 
 const T = '2026-09-22T01:00:00.000Z'
@@ -119,5 +119,42 @@ describe('Case Matcher — Pool 안에서의 점수', () => {
     for (const m of rec.picks) expect(m.caseStudy.industry).toBe('manufacturing')
     const allReasons = rec.picks.flatMap((m) => m.reasons)
     expect(allReasons.some((r) => /세부분야|같은 업종|문제 구조|성장|규모/.test(r))).toBe(true)
+  })
+})
+
+describe('업종을 모를 때 — 억지로 채우지 않는다', () => {
+  const unknown = company({ industry: 'other', industryNote: '', headcount: 'unknown', tradeType: 'unknown', interests: ['unknown'], fieldSources: {} })
+
+  it('아무 사례나 붙이지 않고, 업종을 확인하면 된다고 말한다', () => {
+    const s = buildStrategy({ company: unknown, profile: null, cases: CASE_SEED, now: T })
+    expect(s.cases).toHaveLength(0)
+    expect(s.caseNotice).toContain('업종을 확인하면')
+  })
+
+  it('사례가 없으면 CASE 멘트가 "사례가 있습니다" 라고 말하지 않는다', () => {
+    const s = buildStrategy({ company: unknown, profile: null, cases: CASE_SEED, now: T })
+    const script = s.scripts.find((x) => x.key === 'case')!
+    expect(script.say).not.toContain('실제 사례가 있습니다')
+  })
+
+  it('업종을 몰라도 전략·질문은 그대로 만들어진다 (저장을 막지 않는다)', () => {
+    const s = buildStrategy({ company: unknown, profile: null, cases: CASE_SEED, now: T })
+    expect(s.focus).toHaveLength(3)
+    expect(s.questions.length).toBeGreaterThanOrEqual(5)
+    expect(s.confidence.level).toBe('low')
+  })
+
+  it('핵심 요약은 모르는 값을 빈 칸으로 돌려준다 — 화면에서 "미확인 + [선택]" 이 된다', () => {
+    const c = coreSummary(unknown, null)
+    expect(c.industry).toBe('')
+    expect(c.headcount).toBe('')
+    expect(c.revenue).toBe('')
+    expect(c.years).toBe('')
+    expect(c.hasAny).toBe(false)
+  })
+
+  it('업종 메모가 있으면 그 값을 정리해서 보여 준다', () => {
+    const c = coreSummary(company({ industry: 'other', industryNote: '(10차) (G46593) 정밀기기및과학기기도매업' }), null)
+    expect(c.industry).toBe('정밀기기 및 과학기기 도매업')
   })
 })

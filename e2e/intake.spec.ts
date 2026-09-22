@@ -6,6 +6,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { SHOTS, SPEECH_MOCK, prepareCompany } from './helpers'
 
 const FIXTURE = 'e2e/fixtures/sample-company-report.pdf'
+/** 업종·직원수·거래형태가 없는 보고서 — PDF가 전부 알려주지 않는 현실 */
+const SPARSE = 'e2e/fixtures/sparse-company-report.pdf'
 
 async function loginPartner(page: Page) {
   await page.goto('/login')
@@ -121,7 +123,7 @@ test.describe('지능형 등록', () => {
     await page.goto('/companies/new/pdf')
     await uploadFixture(page)
     await openEvidence(page)
-    // 직원수 사용 안 함 → 핵심 요약에서 사라진다
+    // 직원수 사용 안 함 → 핵심 요약에서 "미확인" 이 된다 (칸은 사라지지 않는다)
     await row(page, 'headcount').getByTestId('evidence-remove').click()
     await expect(row(page, 'headcount')).toHaveAttribute('data-removed', 'true')
     // 회사명 수정
@@ -130,7 +132,8 @@ test.describe('지능형 등록', () => {
     await page.getByTestId('evidence-edit-save').click()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('core-name')).toContainText('테스트정밀상사')
-    await expect(coreItem(page, 'headcount')).toHaveCount(0)
+    await expect(coreItem(page, 'headcount')).toHaveAttribute('data-state', 'unknown')
+    await expect(coreItem(page, 'headcount')).toContainText('미확인')
     await page.getByTestId('core-edit').click()
     await expect(page.getByTestId('company-name')).toHaveValue('테스트정밀상사')
     await expect(page.getByRole('radio', { name: '잘 모르겠음' }).first()).toHaveAttribute('aria-checked', 'true')
@@ -329,5 +332,90 @@ test.describe('지능형 등록', () => {
     expect(n).toBeLessThanOrEqual(2)
     await expect(cs.first()).toContainText(/같은 업종|세부분야|문제 구조|규모/)
     await expect(page.locator('[data-testid="focus-item"][data-area="quote_order"]')).toHaveCount(1)
+  })
+  test('P0 — PDF에 업종·인원·거래형태가 없어도 저장이 막히지 않는다 (화면에 없는 값을 요구하지 않는다)', async ({ page }, testInfo) => {
+    const tag = testInfo.project.name
+    await loginPartner(page)
+    await page.goto('/companies/new/pdf')
+    await page.getByTestId('pdf-input').setInputFiles(SPARSE)
+    await expect(page.getByTestId('pdf-review')).toBeVisible({ timeout: 45_000 })
+    await expect(page.getByTestId('core-name')).toContainText('가상데이터랩')
+
+    // 값이 없어도 칸은 4개 그대로 — 무엇을 모르는지 보이고, 그 자리에서 채울 수 있다
+    await expect(page.getByTestId('core-item')).toHaveCount(4)
+    for (const k of ['industry', 'headcount', 'revenue']) {
+      await expect(coreItem(page, k)).toHaveAttribute('data-state', 'unknown')
+      await expect(coreItem(page, k)).toContainText('미확인')
+      await expect(coreItem(page, k).getByTestId('core-fill')).toBeVisible()
+    }
+    await expect(coreItem(page, 'years')).toHaveAttribute('data-state', 'filled')
+    // "확인 권장 N건" 카운터는 없앴다
+    await expect(page.getByTestId('pdf-warning-count')).toHaveCount(0)
+    await page.screenshot({ path: `${SHOTS}/${tag}-10-sparse-review.png`, fullPage: true })
+
+    // 근로자 수는 [선택] 로 그 자리에서 채운다 — 기존 인원 선택지를 그대로 쓴다
+    await coreItem(page, 'headcount').getByTestId('core-fill').click()
+    await expect(page.getByTestId('core-fill-sheet')).toBeVisible()
+    await page.getByRole('radio', { name: '6~10명' }).click()
+    await page.getByTestId('slot-apply').click()
+    await expect(coreItem(page, 'headcount')).toContainText('6~10명')
+
+    // 업종은 Hard Block 이 아니다 — 버튼은 눌리고, 한 번 물어본 뒤 그대로 진행할 수 있다
+    await expect(page.getByTestId('pdf-confirm')).toBeEnabled()
+    await page.getByTestId('pdf-confirm').click()
+    await expect(page.getByTestId('industry-confirm')).toBeVisible()
+    await page.screenshot({ path: `${SHOTS}/${tag}-11-industry-soft-confirm.png`, fullPage: true })
+    await page.getByTestId('industry-skip').click()
+
+    // 저장된다 — 고칠 수 없는 오류 메시지는 없다
+    await expect(page.getByTestId('strategy-title')).toContainText('가상데이터랩')
+    expect(await page.locator('body').innerText()).not.toContain('골라 주세요')
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]') as { name: string; industry: string; headcount: string; tradeType: string }[])
+    expect(saved).toHaveLength(1)
+    expect(saved[0]).toMatchObject({ name: '가상데이터랩', industry: 'other', headcount: '6-10', tradeType: 'unknown' })
+
+    // 업종을 모르면 엉뚱한 업종 사례를 붙이지 않는다
+    await expect(page.getByTestId('case-row')).toHaveCount(0)
+    await expect(page.getByTestId('case-empty')).toContainText('업종을 확인하면')
+    // 전략·질문은 그대로 만들어진다
+    await expect(page.getByRole('list', { name: '오늘 확인할 것' }).getByRole('listitem')).toHaveCount(3)
+    await expect(page.getByTestId('question-count')).toContainText(/오늘 질문 [5-7]개 준비됨/)
+    await page.screenshot({ path: `${SHOTS}/${tag}-12-sparse-strategy.png`, fullPage: true })
+  })
+
+  test('업종을 고르면 바로 저장되고, 같은 업종 사례가 붙는다', async ({ page }) => {
+    await loginPartner(page)
+    await page.goto('/companies/new/pdf')
+    await page.getByTestId('pdf-input').setInputFiles(SPARSE)
+    await expect(page.getByTestId('pdf-review')).toBeVisible({ timeout: 45_000 })
+    await page.getByTestId('pdf-confirm').click()
+    await expect(page.getByTestId('industry-confirm')).toBeVisible()
+    await page.getByTestId('industry-confirm').getByRole('radio', { name: '제조' }).click()
+    await expect(page.getByTestId('strategy-title')).toContainText('가상데이터랩')
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]') as { industry: string }[])
+    expect(saved[0].industry).toBe('manufacturing')
+    const n = await page.getByTestId('case-row').count()
+    expect(n).toBeGreaterThan(0)
+  })
+
+  test('회사명만 없으면 그 자리에서 입력창이 열린다 (막고 끝내지 않는다)', async ({ page }) => {
+    await loginPartner(page)
+    await page.goto('/companies/new/pdf')
+    await page.getByTestId('pdf-input').setInputFiles(SPARSE)
+    await expect(page.getByTestId('pdf-review')).toBeVisible({ timeout: 45_000 })
+    // 회사명 근거를 빼면 회사명이 비워진다
+    await openEvidence(page)
+    await row(page, 'companyName').getByTestId('evidence-remove').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('core-fill-name')).toBeVisible()
+    await page.getByTestId('pdf-confirm').click()
+    // 오류만 띄우지 않고 입력창을 연다
+    await expect(page.getByTestId('core-fill-sheet')).toBeVisible()
+    await page.getByTestId('slot-name').fill('직접입력상사')
+    await page.getByTestId('slot-apply').click()
+    await expect(page.getByTestId('core-name')).toContainText('직접입력상사')
+    await page.getByTestId('pdf-confirm').click()
+    await page.getByTestId('industry-skip').click()
+    await expect(page.getByTestId('strategy-title')).toContainText('직접입력상사')
   })
 })

@@ -66,16 +66,32 @@ const BOTTOM: NavItem[] = [
 ]
 const DEVICE_ICON: Record<DeviceView, LucideIcon> = { pc: Monitor, mobile: Smartphone, dual: Columns2 }
 
-function Clock({ compact = false }: { compact?: boolean }) {
+/**
+ * 글로벌 시계 — 어떤 폭에서도 날짜를 숨기지 않는다.
+ *
+ * 미팅은 "언제" 가 기록의 전부다. 390px 에서 시각만 보이면 Partner 가 오늘이 며칠인지 앱 밖에서 확인해야 한다.
+ * 좁으면 두 줄(2026.09.22 화 / 22:15:34), 넓으면 한 줄(2026.09.22 화요일 · 22:15:34)로 접는다.
+ * 타이머는 useClock() 하나만 쓴다 — 화면마다 새 setInterval 을 만들지 않는다.
+ */
+function Clock() {
   const c = useClock()
   return (
-    <time data-testid="live-clock" className="tnum inline-flex items-baseline gap-2 whitespace-nowrap text-ink-700" aria-live="off" title={`${c.date} ${c.weekday}`}>
-      {!compact && (
-        <span className="t-sub hidden font-semibold @4xl/header:inline">
-          {c.date} {c.weekday}
-        </span>
-      )}
-      <span className="text-[1.05rem] font-bold text-ink-900">{c.time}</span>
+    <time
+      data-testid="live-clock"
+      className="tnum flex shrink-0 flex-col items-end leading-tight whitespace-nowrap text-ink-700 @3xl/header:flex-row @3xl/header:items-baseline @3xl/header:gap-2"
+      aria-live="off"
+      title={`${c.date} ${c.weekday}`}
+    >
+      <span className="t-meta font-bold text-ink-500" data-testid="clock-date">
+        {c.date} <span className="@3xl/header:hidden">{c.weekdayShort}</span>
+        <span className="hidden @3xl/header:inline">{c.weekday}</span>
+      </span>
+      <span aria-hidden="true" className="hidden text-ink-300 @3xl/header:inline">
+        ·
+      </span>
+      <span className="text-[1rem] font-bold text-ink-900 @3xl/header:text-[1.05rem]" data-testid="clock-time">
+        {c.time}
+      </span>
     </time>
   )
 }
@@ -239,12 +255,7 @@ function Header({ title, showDevice }: { title: string; showDevice: boolean }) {
         </p>
       </div>
       <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3 lg:gap-4">
-        <span className="hidden @2xl/header:inline-flex">
-          <Clock />
-        </span>
-        <span className="@2xl/header:hidden">
-          <Clock compact />
-        </span>
+        <Clock />
         {showDevice && <DeviceSwitch />}
         <UserChip />
       </div>

@@ -224,6 +224,9 @@ export default function CompanyPage() {
       <CompanyCoreSummary
         company={company}
         profile={profile}
+        // 업종·근로자 수는 여기서도 바로 고칠 수 있어야 한다 — 빈 칸을 보여 주기만 하고 길을 막지 않는다
+        fillable={['industry', 'headcount']}
+        onFill={() => navigate(`/companies/${company.id}/edit`)}
         title={
           <span data-testid="strategy-title">
             {company.name}
@@ -263,14 +266,14 @@ export default function CompanyPage() {
             사례 더 찾기
           </Link>
         </div>
-        {strategy.caseNotice && (
+        {strategy.caseNotice && shown.length > 0 && (
           <p className="t-sub mt-2 rounded-(--radius-control) bg-warn-50 px-4 py-2.5 font-semibold text-warn-700" data-testid="case-notice">
             {strategy.caseNotice}
           </p>
         )}
         {shown.length === 0 ? (
           <p className="mt-3 rounded-(--radius-card) border border-dashed border-line-strong bg-white px-5 py-5 t-body text-ink-500" data-testid="case-empty">
-            같은 업종에서 검수된 사례가 아직 없습니다. 사례 없이 진행하고, 필요하면 사례 탐색에서 직접 고르세요.
+            {strategy.caseNotice || '같은 업종에서 검수된 사례가 아직 없습니다. 사례 없이 진행하고, 필요하면 사례 탐색에서 직접 고르세요.'}
           </p>
         ) : (
           <div className="mt-3 grid gap-3 md:grid-cols-2">
