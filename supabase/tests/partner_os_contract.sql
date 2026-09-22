@@ -244,7 +244,14 @@ do $$ declare n int; m public.partner_members; begin
   perform pg_temp.as_super();
 
   perform pg_temp.as_user((select v from fx where k='partner1'));
-  select count(*) into n from public.partner_cases; assert n = 1, '파트너는 초안을 못 본다: ' || n;
+  select count(*) into n from public.partner_cases where verification_status = 'draft'; assert n = 0, '파트너는 초안을 못 본다: ' || n;
+  select count(*) into n from public.partner_cases where id = 'case_ok'; assert n = 1, '파트너는 검수 사례를 본다';
+  -- 0003 리서치 시드: 파트너에게 보이고, 실제 금액과 제도 한도가 같은 행이 없고, 기존 고객사가 없다
+  select count(*) into n from public.partner_cases where id like 'rc-%'; assert n >= 300, '리서치 시드가 파트너에게 보인다: ' || n;
+  select count(*) into n from public.partner_cases where funding_amount_disclosed is not null and funding_program_max is not null and funding_amount_disclosed = funding_program_max;
+  assert n = 0, '실제 공개금액과 제도상 한도가 같은 행: ' || n;
+  select count(*) into n from public.partner_cases where company_name ~ '(비원미래|정통대왕쑥뜸원|KPJK|태강지엘텍|하나인사이트|선진산업)'; assert n = 0, '기존 고객사가 사례 DB 에 있다: ' || n;
+  select count(*) into n from public.partner_cases where funding_type = 'mixed'; assert n > 0, '혼합조달 유형이 허용된다';
   begin
     perform public.partner_add_member('partner2@example.com', 'x', 'partner');
     raise exception '파트너가 파트너를 등록하면 안 된다';

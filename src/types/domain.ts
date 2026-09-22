@@ -318,6 +318,8 @@ export type FundingType =
   | 'gov_rnd'
   | 'commercialization'
   | 'employment_subsidy'
+  /** 혼합조달 — 민간투자 + 보증/정책기관 참여 등 두 가지 이상이 결합된 경우 */
+  | 'mixed'
   | 'none'
   | 'unknown'
 
@@ -363,6 +365,42 @@ export interface CaseStudy {
   /** 문제 구조 태그 — 업종이 달라도 문제가 비슷한 사례를 찾기 위한 축 */
   problemAreas: QuestionArea[]
   updatedAt: string
+  /* ---- 리서치 사례 메타 (PDF 파싱, 모두 선택 필드 — 마스터 수기 사례는 비어 있어도 된다) ---- */
+  /** 괄호 안 별칭 (예: 커넥트링(플래그픽) → 플래그픽) */
+  companyAlias?: string
+  /** 원문 보기 링크 */
+  sourceUrl?: string
+  /** 리서치 PDF 페이지 */
+  researchPage?: number
+  /** 업종별 전체 사례 섹션(9분류) */
+  researchSection?: string
+  /** 10억 미만 특별 인덱스 분류(17분류) */
+  researchCategory?: string
+  /** 파싱 결과가 애매하거나 실제 수령액이 미공개 → 기본 추천 제외 */
+  reviewRequired?: boolean
+  reviewReasons?: string[]
+  /** 리서치의 AX 등급 A/B/C (A: AX·플랫폼·데이터 전환형, B: 현장 자동화·로봇·디바이스형, C: 제품·브랜드 사업화형) */
+  axGrade?: '' | 'A' | 'B' | 'C'
+  /** 이번 업데이트에서 새로 검증된 사례(●) */
+  newlyVerified?: boolean
+  /** 금액 원문 표기 (예: '최대 40 억', '누적 402 억') */
+  amountRaw?: string
+  /** 실제 공개금액 구간 */
+  amountBand?: string
+  /** 자금형태 원문 (예: '민간투자 + 신보 참여') */
+  fundingForm?: string
+  fundingClasses?: FundingType[]
+  /** 자금 연결 과정 서술 */
+  fundingLink?: string
+  /** 리서치 원문 서술 전체 */
+  narrative?: string
+  narrativeKind?: 'template_A' | 'template_B' | 'template_C' | 'flow' | 'free' | 'none'
+  /** 한 줄 요약 (무엇을 만든 회사인가) */
+  oneLiner?: string
+  /** 정책금융 섹션에 함께 실린 서술 */
+  policyNarratives?: string[]
+  policyForms?: string[]
+  policyPrograms?: string[]
 }
 
 /* ------------------------------------------------------------------ */

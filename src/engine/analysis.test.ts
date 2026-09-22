@@ -162,10 +162,26 @@ describe('유사사례 추천', () => {
     expect(rec.secondary?.caseStudy.industry).not.toBe('manufacturing')
     expect(rec.secondary?.whySimilar).toContain('문제 구조')
   })
-  it('자금 관심이 없으면 자금 전용 사례를 위로 올리지 않는다', () => {
+  it('자금 관심이 없으면 AX 전환 서술이 없는 자금·선정 레퍼런스를 위로 올리지 않는다', () => {
     const c = company({ industry: 'construction' })
     const rec = recommendCases(CASE_SEED, c, ['info_scatter'], { areaLabel: (a) => AREA_LABEL[a], fundingInterest: false })
-    expect(rec.primary?.caseStudy.id).toBe('case_elec')
+    expect(rec.primary).not.toBeNull()
+    expect(rec.primary?.caseStudy.axTransition.length).toBeGreaterThan(0)
+    expect(rec.primary?.caseStudy.reviewRequired).toBeFalsy()
+    expect(rec.primary?.caseStudy.fundingForm?.startsWith('TIPS 선정')).toBeFalsy()
+  })
+  it('검수 필요(needs_review) 사례는 기본 추천에서 빠지고, 옵션을 켜면 포함된다', () => {
+    const c = company({ industry: 'manufacturing' })
+    const base = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: (a) => AREA_LABEL[a] })
+    expect([base.primary, base.secondary, ...base.others].every((m) => !m || m.caseStudy.verificationStatus === 'verified')).toBe(true)
+    const all = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: (a) => AREA_LABEL[a], includeReviewRequired: true })
+    expect(all.others.length).toBeGreaterThan(base.others.length)
+  })
+  it('소규모 고객에게는 10억 미만 사례가 먼저 온다', () => {
+    const c = company({ industry: 'food', headcount: '6-10' })
+    const rec = recommendCases(CASE_SEED, c, ['customer_mgmt'], { areaLabel: (a) => AREA_LABEL[a] })
+    expect(rec.primary?.caseStudy.fundingAmountDisclosed ?? 0).toBeLessThan(1_000_000_000)
+    expect(rec.primary?.reasons).toContain('10억 미만 현실적 규모')
   })
 })
 

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import type { CaseStudy } from '../types/domain'
 import { Badge, Button } from './ui'
 import { FUNDING_TYPE_LABEL, INDUSTRY_LABEL } from '../content/labels'
-import { CASE_DISCLAIMER } from '../content/cases'
+import { CASE_DISCLAIMER } from '../content/caseText'
 import { formatKrw } from '../lib/util'
 
 export function CaseCard({ caseStudy: c, whySimilar, compact = false, onOpen, footer }: { caseStudy: CaseStudy; whySimilar?: string; compact?: boolean; onOpen?: () => void; footer?: React.ReactNode }) {

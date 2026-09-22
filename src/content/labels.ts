@@ -115,6 +115,7 @@ export const FUNDING_TYPE_LABEL: Record<FundingType, string> = {
   gov_rnd: '정부 R&D',
   commercialization: '사업화지원',
   employment_subsidy: '고용지원금',
+  mixed: '혼합조달',
   none: '자금조달 없음',
   unknown: '미확인',
 }

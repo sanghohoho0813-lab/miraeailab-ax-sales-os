@@ -18,7 +18,6 @@ import type {
   UsageEventType,
 } from '../types/domain'
 import type { HandoffSubmitResult, Repository } from './repository'
-import { CASE_SEED } from '../content/cases'
 
 type Row = Record<string, unknown>
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d)
@@ -115,6 +114,9 @@ function handoffFromRow(r: Row): Handoff {
 function caseFromRow(r: Row): CaseStudy {
   const p = obj<Partial<CaseStudy>>(r.payload, {})
   return {
+    ...p,
+    sourceUrl: p.sourceUrl ?? str(r.source_url),
+    reviewRequired: typeof p.reviewRequired === 'boolean' ? p.reviewRequired : r.review_required === true,
     id: str(r.id),
     companyName: str(r.company_name),
     industry: str(r.industry, 'other') as CaseStudy['industry'],
@@ -162,19 +164,19 @@ function caseToRow(c: CaseStudy): Row {
     verification_status: c.verificationStatus,
     keywords: c.keywords,
     problem_areas: c.problemAreas,
-    payload: {
-      problem: c.problem,
-      beforeProcess: c.beforeProcess,
-      axTransition: c.axTransition,
-      internalAx: c.internalAx,
-      customerPortal: c.customerPortal,
-      aiFunction: c.aiFunction,
-      validation: c.validation,
-      talkingPoints: c.talkingPoints,
-      caveats: c.caveats,
-      fundingNote: c.fundingNote,
-    },
+    source_url: c.sourceUrl ?? '',
+    review_required: c.reviewRequired === true,
+    payload: casePayload(c),
   }
+}
+/** 컬럼으로 저장되는 필드를 뺀 나머지(문안 + 리서치 메타)를 payload 로 보관한다 */
+function casePayload(c: CaseStudy): Record<string, unknown> {
+  const {
+    id: _id, companyName: _n, industry: _i, subIndustry: _s, businessModel: _b, axPath: _a, growthStage: _g, fundingType: _f,
+    fundingAmountDisclosed: _fa, fundingProgramMax: _fm, year: _y, source: _src, sourceDate: _sd, verificationStatus: _v,
+    keywords: _k, problemAreas: _pa, updatedAt: _u, ...rest
+  } = c
+  return rest
 }
 function memberFromRow(r: Row): PartnerMember {
   return {
@@ -290,8 +292,10 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.client.from('partner_cases').select('*').order('updated_at', { ascending: false })
     if (error) fail(error, '사례를 불러오지 못했습니다.')
     const rows = (data ?? []).map((r) => caseFromRow(r as Row))
-    // 시드가 아직 들어가지 않은 환경에서는 코드에 있는 시드를 읽기 전용으로 보여 준다
-    return rows.length ? rows : CASE_SEED
+    // 시드(0003 migration)가 아직 들어가지 않은 환경에서는 코드에 있는 리서치 시드를 읽기 전용으로 보여 준다
+    if (rows.length) return rows
+    const mod = await import('../content/cases')
+    return mod.CASE_SEED
   }
   async saveCase(_u: CurrentUser, caseStudy: CaseStudy): Promise<CaseStudy> {
     const { data, error } = await this.client.from('partner_cases').upsert(caseToRow(caseStudy), { onConflict: 'id' }).select('*').single()

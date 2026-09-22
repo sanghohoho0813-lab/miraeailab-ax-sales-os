@@ -2,6 +2,12 @@
  * local 모드 저장소 — 브라우저 localStorage. 로그인 없이 시연·e2e 용.
  * 운영 OS 이벤트함은 'axpartner.customer_events' 로 흉내 낸다(같은 meeting 은 한 번만 등록 — idempotent).
  */
+/** 사례 시드는 크기가 커서(리서치 371건) 필요할 때만 청크로 불러온다 */
+async function loadCaseSeed(): Promise<CaseStudy[]> {
+  const mod = await import('../content/cases')
+  return mod.CASE_SEED
+}
+
 import type {
   CaseStudy,
   Company,
@@ -16,7 +22,6 @@ import type {
   UsageEventType,
 } from '../types/domain'
 import type { HandoffSubmitResult, Repository } from './repository'
-import { CASE_SEED } from '../content/cases'
 import { newId, nowIso, normalizePhone } from '../lib/util'
 
 const KEYS = {
@@ -210,12 +215,12 @@ export class LocalRepository implements Repository {
 
   async listCases(user: CurrentUser): Promise<CaseStudy[]> {
     const stored = read<CaseStudy[] | null>(KEYS.cases, null)
-    const all = stored ?? CASE_SEED
+    const all = stored ?? (await loadCaseSeed())
     return isMaster(user) ? all : all.filter((c) => c.verificationStatus !== 'draft')
   }
   async saveCase(user: CurrentUser, caseStudy: CaseStudy): Promise<CaseStudy> {
     if (!isMaster(user)) throw new Error('사례 DB 는 마스터만 수정할 수 있습니다.')
-    const all = read<CaseStudy[] | null>(KEYS.cases, null) ?? CASE_SEED
+    const all = read<CaseStudy[] | null>(KEYS.cases, null) ?? (await loadCaseSeed())
     const next = { ...caseStudy, updatedAt: nowIso() }
     const exists = all.some((c) => c.id === next.id)
     write(KEYS.cases, exists ? all.map((c) => (c.id === next.id ? next : c)) : [next, ...all])
