@@ -629,7 +629,11 @@ export default function PdfIntakePage() {
             </div>
           )}
 
-          {/* 하단 고정 CTA */}
+          {/*
+            하단 고정 CTA. sticky 는 자기 자리를 flow 에 남기고 떠오르기 때문에, 바로 아래에 여유가 없으면
+            문서 끝까지 내려도 바가 마지막 내용을 덮는다(모바일에서 미팅 시각 줄이 가려지던 원인).
+            아래 spacer 만큼 자리를 두면 끝까지 내렸을 때 바가 제자리에 앉아 아무것도 가리지 않는다.
+          */}
           <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 mt-6 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
             <div className="mx-auto flex max-w-[860px] flex-wrap items-center justify-between gap-3 sm:border-t sm:border-line sm:pt-5">
               <Button onClick={() => reset()} disabled={busy} data-testid="pdf-retry">
@@ -656,6 +660,7 @@ export default function PdfIntakePage() {
               )}
             </div>
           </div>
+          <div aria-hidden="true" className="h-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:hidden" data-testid="cta-spacer" />
         </section>
       )}
 

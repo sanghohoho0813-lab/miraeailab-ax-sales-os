@@ -298,7 +298,11 @@ export function recommendCases(cases: CaseStudy[], company: Company, painAreas: 
  * 점수순 목록에서 규모 조합을 맞춰 고른다.
  *   1) 10억 이내 사례를 점수순으로 SMALL_MIN 개까지 먼저 확보한다(있는 만큼 — 없으면 억지로 채우지 않는다)
  *   2) 남은 자리는 점수순으로 채우되 수십억(20억 이상) 사례는 LARGE_MAX 개까지만
- *   3) 화면 순서는 다시 점수순 — 조합은 "무엇이 들어가나" 를 정하고, 순서는 "얼마나 비슷한가" 가 정한다
+ *   3) 화면 순서는 10억 이내를 앞으로, 그 안에서는 점수순
+ *
+ * (3) 은 처음에 "순서는 점수순" 이었는데, 화면이 5개 중 3개만 펼치게 되면서 바꿨다.
+ * 먼저 보이는 3개에 10억 이내가 1개뿐이면 "5개 중 3개는 10억 이내" 라는 규칙이 화면에 없는 것과 같다.
+ * 5~30명 회사 대표 앞에서는 "가장 비슷한 사례" 보다 "우리 규모 얘기" 가 먼저 와야 설득이 된다.
  */
 export function composePicks(scored: CaseMatch[], limit = PICK_LIMIT): CaseMatch[] {
   const picked = new Set<CaseMatch>()
@@ -316,7 +320,9 @@ export function composePicks(scored: CaseMatch[], limit = PICK_LIMIT): CaseMatch
     }
     picked.add(m)
   }
-  return scored.filter((m) => picked.has(m))
+  // 점수순을 유지한 채 10억 이내를 앞으로 (stable) — 앞에서 3개만 펼쳐도 규칙이 보인다
+  const chosen = scored.filter((m) => picked.has(m))
+  return [...chosen.filter((m) => fundingScale(m.caseStudy) === 'small'), ...chosen.filter((m) => fundingScale(m.caseStudy) !== 'small')]
 }
 
 /** 화면에 뿌릴 사례 목록 (기본 추천 + fallback). 억지로 채우지 않는다 */

@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarClock, Send } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import { useClock } from '../lib/clock'
 import type { Company, Handoff, Meeting } from '../types/domain'
 import { Button, Badge, FlatSection, SkeletonList, useCountUp } from '../components/ui'
 import { INDUSTRY_LABEL, HANDOFF_STATUS_LABEL, MEETING_STATUS_LABEL } from '../content/labels'
@@ -20,7 +19,6 @@ function sameDay(iso: string | null | undefined, now: Date): boolean {
 
 export default function DashboardPage() {
   const { user, repo } = useSession()
-  const clock = useClock()
   const [companies, setCompanies] = useState<Company[] | null>(null)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [handoffs, setHandoffs] = useState<Handoff[]>([])
@@ -53,17 +51,12 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-[1200px] space-y-10">
       {/* 첫 화면 */}
       <section className="reveal">
-        <p className="t-sub font-semibold text-ink-500">
-          {clock.date} {clock.weekday}
-        </p>
-        <h1 className="t-page mt-1">
+        {/* 날짜·요일·시각은 글로벌 헤더가 어느 폭에서나 보여 준다 — 홈에서 한 번 더 크게 쓰면 첫 화면만 길어진다 */}
+        <h1 className="t-page">
           안녕하세요, {user.name}
           {user.title ? ` ${user.title}` : ''}님
         </h1>
-        <p className="t-kpi tnum mt-3 text-kpi" data-testid="home-clock" aria-live="off">
-          {clock.time}
-        </p>
-        <p className="t-body mt-4 text-ink-700">
+        <p className="t-body mt-3 text-ink-700">
           오늘 예정된 미팅{' '}
           <strong className="text-[1.25rem] font-black text-accent-700" data-testid="today-count">
             {companies ? todayCount : '–'}건

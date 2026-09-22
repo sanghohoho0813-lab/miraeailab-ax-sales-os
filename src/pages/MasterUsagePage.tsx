@@ -5,6 +5,8 @@ import type { CaseStudy, Handoff, Meeting, UsageEvent } from '../types/domain'
 import { FlatSection, PageTitle, SkeletonList, Stat } from '../components/ui'
 import { QUESTION_BY_ID } from '../content/questions'
 import { PLAYBOOK } from '../content/playbook'
+import { INDUSTRY_LABEL, INDUSTRY_ORDER } from '../content/labels'
+import { SMALL_MIN, fundingScale } from '../engine/caseMatcher'
 
 const MIN_MEETINGS = 10
 
@@ -32,6 +34,20 @@ export default function MasterUsagePage() {
       setCases(c)
     })
   }, [repo, user])
+
+  /**
+   * 업종별 사례 커버리지 — 추천 품질의 상한선이다.
+   * 추천은 "같은 업종 안에서 10억 이내를 먼저" 고르는데, 그 업종에 10억 이내 검수 사례가 없으면
+   * 코드로는 해결할 수 없다(타업종을 끌어오는 순간 광고회사에 화훼 사례가 붙는다). 리서치로 채워야 한다.
+   */
+  const coverage = useMemo(() => {
+    const usable = cases.filter((c) => c.verificationStatus === 'verified' && !c.reviewRequired && (c.axTransition || c.internalAx || c.aiFunction || c.customerPortal))
+    return INDUSTRY_ORDER.filter((i) => i !== 'other').map((industry) => {
+      const pool = usable.filter((c) => c.industry === industry)
+      const small = pool.filter((c) => fundingScale(c) === 'small').length
+      return { industry, pool: pool.length, small, need: Math.max(0, SMALL_MIN - small) }
+    }).sort((a, b) => b.need - a.need || a.small - b.small)
+  }, [cases])
 
   const stats = useMemo(() => {
     const done = meetings.filter((m) => m.status === 'analyzed' || m.status === 'submitted')
@@ -69,6 +85,37 @@ export default function MasterUsagePage() {
           <Stat label="음성 입력 사용" value={stats.intake.voice} unit="회" />
           <Stat label="추출값 수정·제외" value={stats.intake.corrected} unit="회" hint="PDF 추출 후 고친 항목" />
           <Stat label="중복 안내" value={stats.intake.duplicates} unit="회" hint={`전략 자동생성 ${stats.intake.strategies}회`} />
+        </div>
+      </FlatSection>
+      <FlatSection title="업종별 사례 커버리지" sub="추천은 같은 업종 안에서 10억 이내를 먼저 고릅니다. 10억 이내가 3건 미만인 업종은 리서치로 채워야 합니다 — 코드로는 해결되지 않습니다">
+        <div className="overflow-x-auto rounded-(--radius-card) border border-line bg-white">
+          <table className="w-full min-w-[34rem] border-collapse text-left" data-testid="coverage-table">
+            <thead>
+              <tr className="border-b border-line">
+                {['업종', '검수 사례', '10억 이내', '상태'].map((h) => (
+                  <th key={h} className="t-meta px-4 py-3 font-black tracking-wide text-ink-500">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {coverage.map((r) => (
+                <tr key={r.industry} className="border-b border-line last:border-0" data-testid="coverage-row" data-industry={r.industry} data-need={r.need}>
+                  <td className="px-4 py-3 font-bold">{INDUSTRY_LABEL[r.industry]}</td>
+                  <td className="tnum px-4 py-3 text-ink-700">{r.pool}</td>
+                  <td className="tnum px-4 py-3 font-bold">{r.small}</td>
+                  <td className="px-4 py-3">
+                    {r.need === 0 ? (
+                      <span className="t-sub font-semibold text-ok-700">충분</span>
+                    ) : (
+                      <span className="t-sub font-bold text-warn-700">{r.small === 0 ? '없음' : '부족'} — {r.need}건 더 필요</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </FlatSection>
       {stats.done < MIN_MEETINGS ? (

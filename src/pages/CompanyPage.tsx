@@ -1,18 +1,23 @@
 /**
  * BEFORE — 미팅 전략. 한 화면에서 끝난다.
  *
- * 첫 화면에 보이는 것: 회사 핵심 4가지 → 오늘 확인할 3가지 → 동종업계 사례 최대 5개(10억 이내 우선) → [미팅 시작].
+ * 첫 화면에 보이는 것: 회사 핵심 4가지 → 오늘 확인할 3가지 → [미팅 시작] → 동종업계 사례.
+ * [미팅 시작] 이 사례보다 위에 있는 이유: Partner 가 이 화면에서 하는 일은 "훑고 들어가기" 다.
+ * 사례를 5개로 늘렸더니 모바일에서 CTA 가 2.4 화면 아래로 밀렸다 — 정보를 늘리는 것이 주 동작을 밀어내면 안 된다.
  * 질문 목록·멘트·가설·주의표현·기업자료·미팅기록은 전부 접어 둔다. 미팅 전에 읽어야 할 글은 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw } from 'lucide-react'
+import { Play, Pencil, ArrowLeft, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { PICK_LIMIT } from '../engine/caseMatcher'
+
+/** 준비 화면에 기본으로 펼치는 사례 수 */
+const CASE_PREVIEW = 3
 import { EvidenceList } from '../components/EvidenceList'
 import { DIAGNOSIS_GRADE_LABEL, MEETING_STATUS_LABEL } from '../content/labels'
 import { buildStrategy, strategyHash, type Strategy } from '../engine/strategy'
@@ -31,6 +36,8 @@ export default function CompanyPage() {
   const [company, setCompany] = useState<Company | null>(null)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [cases, setCases] = useState<CaseStudy[]>([])
+  /** 사례는 기본 3개만 펼친다 — [N개 더 보기] 로 최대 5개 */
+  const [allCases, setAllCases] = useState(false)
   const [profiles, setProfiles] = useState<CompanyProfile[]>([])
   const [busy, setBusy] = useState(false)
   const [notFound, setNotFound] = useState(false)
@@ -200,7 +207,9 @@ export default function CompanyPage() {
   const d = company.diagnosis
   const pinned = (company.pinnedCaseIds ?? []).map((id) => cases.find((c) => c.id === id)).filter((c): c is CaseStudy => Boolean(c))
   const recs = strategy.cases.filter((m) => !pinned.some((p) => p.id === m.caseStudy.id))
-  const shown = [...pinned.map((c) => ({ caseStudy: c, reason: '📌 내가 고른 사례' })), ...recs.map((m) => ({ caseStudy: m.caseStudy, reason: m.reasons.slice(0, 2).join(' · ') }))].slice(0, PICK_LIMIT)
+  const allShown = [...pinned.map((c) => ({ caseStudy: c, reason: '📌 내가 고른 사례' })), ...recs.map((m) => ({ caseStudy: m.caseStudy, reason: m.reasons.slice(0, 2).join(' · ') }))].slice(0, PICK_LIMIT)
+  // 기본은 3개. 5개를 한 번에 펼치면 모바일에서 화면 한 장이 사례로만 찬다
+  const shown = allCases ? allShown : allShown.slice(0, CASE_PREVIEW)
   const approach = enhanced && enhanced.hash === hash && enhanced.approach ? enhanced.approach : strategy.approach
   const when = company.meetingAt ? `${relativeDay(company.meetingAt)} ${formatDate(company.meetingAt, true).slice(-5)}` : ''
 
@@ -259,7 +268,18 @@ export default function CompanyPage() {
         </p>
       </section>
 
-      {/* 3) 오늘 참고할 실제 사례 — 최대 5개, 동종업계 안에서만, 10억 이내 조달을 먼저 */}
+      {/* 3) 미팅 시작 — 사례보다 위. 준비 화면의 주 동작이다 */}
+      <section className="reveal">
+        <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
+          <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : '미팅 시작'}
+        </Button>
+        <p className="t-sub mt-2 text-ink-500" data-testid="question-count">
+          오늘 질문 {strategy.questions.length}개 준비됨
+          {strategy.prefilled.length > 0 && ` · 사전진단으로 ${strategy.prefilled.length}개는 건너뜁니다`}
+        </p>
+      </section>
+
+      {/* 4) 오늘 참고할 실제 사례 — 기본 3개, [+N개 더 보기] 로 최대 5개. 동종업계 안에서만, 10억 이내 조달을 먼저 */}
       <section className="reveal">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="t-section">오늘 참고할 실제 사례</h2>
@@ -284,17 +304,11 @@ export default function CompanyPage() {
             ))}
           </div>
         )}
-      </section>
-
-      {/* 4) 미팅 시작 */}
-      <section className="reveal">
-        <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
-          <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : '미팅 시작'}
-        </Button>
-        <p className="t-sub mt-2 text-ink-500" data-testid="question-count">
-          오늘 질문 {strategy.questions.length}개 준비됨
-          {strategy.prefilled.length > 0 && ` · 사전진단으로 ${strategy.prefilled.length}개는 건너뜁니다`}
-        </p>
+        {!allCases && allShown.length > shown.length && (
+          <Button size="sm" className="mt-3" onClick={() => setAllCases(true)} data-testid="more-cases">
+            <ChevronDown aria-hidden="true" className="size-4" /> {allShown.length - shown.length}개 더 보기
+          </Button>
+        )}
       </section>
 
       {/* 5) 더보기 — 기본은 닫혀 있다 */}

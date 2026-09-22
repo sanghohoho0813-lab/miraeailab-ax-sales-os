@@ -77,15 +77,18 @@ test.describe('지능형 등록', () => {
     await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀')
     await expect(page.getByTestId('strategy-approach')).toContainText(/오늘은/)
     await expect(page.getByRole('list', { name: '오늘 확인할 것' }).getByRole('listitem')).toHaveCount(3)
-    // 사례는 최대 5개, 전부 같은 업종, 10억 이내가 3개 이상, 수십억은 2개 이하, 각 카드에 규모 배지
+    // 기본은 3개만 펼친다 — 그리고 먼저 보이는 3개가 규칙(10억 이내 우선)을 대표해야 한다
     const cs = page.getByTestId('case-row')
-    const n = await cs.count()
-    expect(n).toBeGreaterThan(0)
-    expect(n).toBeLessThanOrEqual(5)
+    await expect(cs).toHaveCount(3)
+    const preview = await cs.evaluateAll((els) => els.map((e) => e.getAttribute('data-scale')))
+    expect(preview.filter((x) => x === 'small').length, '먼저 보이는 3개에 10억 이내가 대부분이어야 한다').toBeGreaterThanOrEqual(2)
+    await expect(cs.first().getByTestId('case-scale')).toBeVisible()
+    // [2개 더 보기] → 최대 5개, 10억 이내 3개 이상, 수십억 2개 이하
+    await page.getByTestId('more-cases').click()
+    await expect(cs).toHaveCount(5)
     const scales = await cs.evaluateAll((els) => els.map((e) => e.getAttribute('data-scale')))
     expect(scales.filter((x) => x === 'small').length).toBeGreaterThanOrEqual(3)
     expect(scales.filter((x) => x === 'large').length).toBeLessThanOrEqual(2)
-    await expect(cs.first().getByTestId('case-scale')).toBeVisible()
     await expect(page.getByTestId('case-notice')).toHaveCount(0)
     await expect(page.getByTestId('question-count')).toContainText(/오늘 질문 [5-7]개 준비됨/)
     // 질문·멘트·주의는 첫 화면에 펼쳐 두지 않는다

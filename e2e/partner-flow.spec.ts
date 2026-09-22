@@ -7,12 +7,10 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
     await page.goto('/login')
     await page.getByTestId('login-partner').click()
     await expect(page).toHaveURL(/\/$/)
-    // 홈 — 인사 · 실시간 시계 · 오늘 미팅 N건 · CTA 하나
+    // 홈 — 인사 · 오늘 미팅 N건 · CTA 하나. 날짜·시각은 글로벌 헤더가 맡는다(header.spec.ts 가 검증)
     await expect(page.getByRole('heading', { name: /안녕하세요, 곽주환 팀장님/ })).toBeVisible()
-    await expect(page.getByTestId('home-clock')).toHaveText(/^\d{2}:\d{2}:\d{2}$/)
-    const t1 = await page.getByTestId('home-clock').textContent()
-    await page.waitForTimeout(1100)
-    expect(await page.getByTestId('home-clock').textContent()).not.toBe(t1)
+    await expect(page.getByTestId('home-clock')).toHaveCount(0)
+    await expect(page.getByTestId('clock-time')).toHaveText(/^\d{2}:\d{2}:\d{2}$/)
     await page.screenshot({ path: `${SHOTS}/${tag}-01-home.png`, fullPage: true })
 
     // 1) 준비 4단계
@@ -76,8 +74,10 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
 
     // 4) 요약 먼저 — 핵심 01/02/03 + 추천 범위, 상세는 접혀 있음
     await expect(page).toHaveURL(/\/result$/)
-    // 결과는 언제나 맨 위에서 시작한다
-    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    // 결과는 언제나 맨 위에서 시작한다.
+    // URL 이 바뀐 직후에는 React 가 아직 커밋하기 전일 수 있다(Playwright 가 더 빠르다).
+    // 초기화는 useLayoutEffect 에서 일어나 화면에 그려지기 전에 끝나지만, 테스트는 커밋을 기다렸다 확인한다(scroll.spec.ts 와 같은 방식).
+    await expect.poll(() => page.evaluate(() => window.scrollY), { message: 'LIVE → 결과', timeout: 3000 }).toBe(0)
     await expect(page.getByTestId('result-title')).toContainText('미팅 분석 완료')
     expect(await page.getByTestId('core-finding').count()).toBeGreaterThanOrEqual(1)
     await expect(page.getByText('추천 범위')).toBeVisible()
