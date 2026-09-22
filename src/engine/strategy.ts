@@ -2,7 +2,7 @@
  * Strategy Autopilot — 회사 기본정보 + 프로필(PDF·음성) + 사전진단 + 371 사례로 "오늘의 접근" 을 한 번에 만든다.
  *
  * 규칙
- *   - 결정적(pure). 유료 AI 없이도 전부 동작한다. AI 는 문장 고도화 어댑터로만 붙는다(lib/ai).
+ *   - 결정적(pure). 유료 AI 없이도 전부 동작한다. AI는 문장 고도화 어댑터로만 붙는다(lib/ai).
  *   - 문서 사실 → 가설(🟡) → 질문 으로 연결한다. 문서만 보고 AX 필요성을 확정하지 않는다.
  *   - 모든 판단에 근거(sources)를 붙인다 — "왜 이렇게 판단했나요?" 에서 그대로 보여 준다.
  *   - 문장은 짧게: 상황별 핵심 답변 1~2문장 + 다음 질문 1개.
@@ -13,11 +13,11 @@ import { FORBIDDEN } from '../content/forbidden'
 import { FUNDING_GUIDE } from '../content/pricing'
 import { AREA_COPY } from './analysis'
 import { buildBriefing, type Briefing } from './briefing'
-import { recommendCases, type CaseMatch, type MatchKind, MATCH_KIND_LABEL } from './caseMatcher'
+import { recommendCases, shownCases, type CaseMatch } from './caseMatcher'
 import { diagnosisHighlights } from './diagnosis'
 import { planQuestions, type QuestionPlan } from './questionSelector'
-import { activeEvidence, evidenceLine } from './profile'
-import { formatWon } from './docParser/korean'
+import { activeEvidence, coreSummaryLine, evidenceLine } from './profile'
+import { joinWithWa } from '../content/korean'
 import { sha256Hex, stableStringify } from '../lib/hash'
 
 export interface Hypothesis {
@@ -47,10 +47,8 @@ export interface StrategySource {
   where: string
 }
 
-export interface StrategyCase extends CaseMatch {
-  kind: MatchKind
-  kindLabel: string
-}
+/** 사례 카드 — 추천 이유(kind/kindLabel)는 matcher 가 붙인다 */
+export type StrategyCase = CaseMatch
 
 export interface Strategy {
   version: 1
@@ -67,6 +65,8 @@ export interface Strategy {
   axDirection: string
   scope: { level: ScopeLevel; label: string; reason: string; status: 'assumed' }
   cases: StrategyCase[]
+  /** 동종업계 사례가 없어 참고 사례를 보여 줄 때의 안내 (없으면 빈 문자열) */
+  caseNotice: string
   scripts: StrategyScript[]
   /** 절대 먼저 하지 말아야 할 말 */
   forbidden: string[]
@@ -119,9 +119,7 @@ export function buildHypotheses(company: Company, profile: CompanyProfile | null
   if (f?.headcount !== null && f?.headcount !== undefined && f.headcount >= 8 && active.has('headcount') && (company.industry === 'manufacturing' || company.industry === 'distribution' || company.industry === 'logistics')) {
     out.push({ id: 'ceo_check', text: `직원 ${f.headcount}명 규모에서 대표 확인 없이 돌아가는 구간이 적을 가능성`, basis: `직원수 ${f.headcount}명${page('headcount')}`, status: 'assumed', question: '대표님 확인 없이는 못 나가는 일이 하루에 몇 건쯤 되나요?', area: 'ceo_dependency' })
   }
-  if (f?.certifications.some((c) => /연구소|전담부서|벤처|이노비즈/.test(c)) && active.has('certifications')) {
-    out.push({ id: 'tech_data', text: '기술·R&D 자산이 있어 업무 데이터가 쌓이는 구조를 만들면 설득력이 커질 가능성', basis: `${f.certifications.slice(0, 2).join(', ')}${page('certifications')}`, status: 'assumed', question: '지금 현장 기록은 어디에 남고 있나요? 엑셀인가요, 프로그램인가요?', area: 'data_potential' })
-  }
+  // 기업인증(연구소·벤처·이노비즈)은 2차 제안·정책자금 쪽 정보다. 1차 미팅 공략 포인트로 쓰지 않는다.
   if ((f?.tradeType === 'b2b' || f?.tradeType === 'both' || company.tradeType === 'b2b' || company.tradeType === 'both') && (f?.products.length ?? 0) >= 2) {
     out.push({ id: 'quote_manual', text: '제품이 여러 가지라 견적·주문이 사람 손을 타는 구간이 있을 가능성', basis: `주요 제품 ${f!.products.slice(0, 3).join(', ')}${page('products')}`, status: 'assumed', question: '견적 요청이 오면 누가, 어디에서, 어떻게 계산하나요?', area: 'quote_order' })
   }
@@ -134,7 +132,7 @@ export function buildHypotheses(company: Company, profile: CompanyProfile | null
   for (const h of diagnosisHighlights(company.diagnosis, 2)) {
     const area: QuestionArea = h.key === 'askProgress' || h.key === 'ceoLoadGrows' ? 'ceo_dependency' : h.key === 'repeatInput' ? 'repetitive_work' : h.key === 'toolGaps' || h.key === 'priorityByMemory' ? 'info_scatter' : h.key === 'manualHandoff' ? 'customer_mgmt' : h.key === 'dataUnused' ? 'data_potential' : h.key === 'uniqueWork' ? 'current_system' : 'repetitive_work'
     if (out.some((x) => x.area === area)) continue
-    out.push({ id: `diag_${h.key}`, text: `사전진단에서 "${h.label}" 을(를) ${h.degree} 로 체크 — 실제 장면을 확인할 가치`, basis: '홈페이지 3분 AX Fit', status: 'assumed', question: `"${h.label}" 이라고 체크하셨는데, 실제로 어떤 장면에서 그런가요?`, area })
+    out.push({ id: `diag_${h.key}`, text: `사전진단에서 "${h.label}" 항목을 ${h.degree} 로 체크했습니다 — 실제 장면을 확인할 가치가 있습니다`, basis: '홈페이지 3분 AX Fit', status: 'assumed', question: `"${h.label}" 이라고 체크하셨는데, 실제로 어떤 장면에서 그런가요?`, area })
   }
   return out.slice(0, 4)
 }
@@ -154,10 +152,10 @@ function scopeHypothesis(company: Company, profile: CompanyProfile | null, hyps:
     reason = g === 'HIGH' ? '사전진단 "최우선 검토" — 업무·데이터·거래처 접점이 함께 걸려 있을 가능성' : '문서에서 읽힌 가설이 여러 영역에 걸쳐 있고 거래처 접점이 있다'
   } else if (g === 'FULL' || g === 'LITE' || hyps.length >= 1) {
     level = 'B'
-    reason = '가장 자주 끊기는 구간부터 부분 AX 로 시작할 수 있다'
+    reason = '가장 자주 끊기는 구간부터 부분 AX로 시작할 수 있다'
   } else {
     level = 'B'
-    reason = '정보가 적어 부분 AX 를 기본 가설로 둔다 — 미팅 답변으로 A/C 를 가른다'
+    reason = '정보가 적어 부분 AX를 기본 가설로 둔다 — 미팅 답변으로 A/C 를 가른다'
   }
   const pf = profile?.facts
   if (pf?.growth.revenueTrend === 'up' && level === 'B') reason += '. 매출이 늘고 있어 확장 가능한 구조를 염두에 둔다'
@@ -225,18 +223,15 @@ export function buildStrategy(input: StrategyInput): Strategy {
   const fundingInterest = company.interests.some((i) => i === 'policy_fund' || i === 'gov_support' || i === 'rnd' || i === 'venture')
   const customerTouchpoint = (company.tradeType === 'b2b' || company.tradeType === 'both') && focus.some((f) => f.area === 'quote_order' || f.area === 'customer_mgmt' || f.area === 'repurchase')
   const rec = recommendCases(cases, company, focus.map((f) => f.area), {
+    limit: 2,
     areaLabel: (a) => AREA_LABEL[a],
     fundingInterest,
     customerTouchpoint,
     profile: profile ? { subIndustry: profile.facts.subIndustry, keywords: profile.facts.products, revenueTrend: profile.facts.growth.revenueTrend, yearsInBusiness: profile.facts.yearsInBusiness, certifications: profile.facts.certifications } : undefined,
   })
-  const picked: StrategyCase[] = []
-  const pushCase = (m: CaseMatch | null, kind: MatchKind) => {
-    if (m && !picked.some((p) => p.caseStudy.id === m.caseStudy.id)) picked.push({ ...m, kind, kindLabel: MATCH_KIND_LABEL[kind] })
-  }
-  pushCase(rec.primary, 'industry')
-  pushCase(rec.secondary, 'problem')
-  pushCase(rec.tertiary, 'path')
+  // 동종업계 안에서만 고른다. 없으면 억지로 채우지 않고 참고 사례 1개 + 안내를 보여 준다
+  const picked: StrategyCase[] = shownCases(rec)
+  const caseNotice = rec.picks.length === 0 && rec.fallback ? '동종업계 사례가 없어 업무구조가 비슷한 사례를 참고로 보여드립니다.' : ''
 
   // 멘트 — 상황별 1~2문장 + 다음 질문 1개
   const primaryCase = picked[0]?.caseStudy
@@ -255,7 +250,7 @@ export function buildStrategy(input: StrategyInput): Strategy {
 
   // 절대 먼저 하지 말아야 할 말
   const forbidden = FORBIDDEN.slice(0, 4).map((f) => `"${f.phrase}"`)
-  if (fundingInterest) forbidden.push('자금을 AX 의 이유로 만들지 마세요 — 자금은 결과입니다')
+  if (fundingInterest) forbidden.push('자금을 AX의 이유로 만들지 마세요 — 자금은 결과입니다')
   if (profile?.facts.financials.length) forbidden.push('"자료 보니 매출이 …" — 대표가 먼저 말하기 전에 재무 숫자를 꺼내지 마세요')
   if (profile?.facts.growth.revenueTrend === 'up') forbidden.push('"매출이 늘어서 업무가 엉망이시죠" — 단정하지 말고 질문으로 확인하세요')
 
@@ -278,11 +273,11 @@ export function buildStrategy(input: StrategyInput): Strategy {
   const level: Strategy['confidence']['level'] = pdf && unknownCore <= 1 ? 'high' : company.diagnosis || unknownCore <= 1 || (profile && unknownCore <= 2) ? 'medium' : 'low'
   const confidence = { level, label: level === 'high' ? '높음' : level === 'medium' ? '보통' : '낮음', pdf: Boolean(pdf), diagnosis: Boolean(company.diagnosis), unknownCore, facts }
 
-  // 한 문단 접근법
+  // 한 문단 접근법 — 2문장, 150자 안팎. 근거 숫자는 [왜 이렇게 판단했나요?] 안으로 보낸다
   const lead = hypotheses[0]
-  const approach = lead
-    ? `이 회사는 AI 자체보다 ${focus.map((f) => f.title).join(' → ')} 이(가) 어디에서 끊기는지를 먼저 확인하는 것이 좋습니다. ${lead.basis} 로 보아 ${lead.text.replace(/가능성$/, '가능성이 있으니')}, "${lead.question}" 로 여세요.`
-    : `이 회사는 AI 자체보다 ${focus.map((f) => f.title).join(' → ')} 이(가) 어디에서 끊기는지를 먼저 확인하는 것이 좋습니다. ${briefing.goal}`
+  const first = `오늘은 AI 자체를 설명하기보다 ${joinWithWa(focus.slice(0, 2).map((f) => f.title))}부터 확인하세요.`
+  const second = lead ? `"${lead.question}" 처럼 실제 장면을 물어보는 것이 첫 번째 목표입니다.` : '실제로 불편한 지점을 찾는 것이 첫 번째 목표입니다.'
+  const approach = `${first} ${second}`
 
   return {
     version: 1,
@@ -295,6 +290,7 @@ export function buildStrategy(input: StrategyInput): Strategy {
     axDirection,
     scope,
     cases: picked,
+    caseNotice,
     scripts,
     forbidden,
     missingInfo: missing,
@@ -321,11 +317,10 @@ export async function strategyHash(company: Company, profile: CompanyProfile | n
   return sha256Hex(stableStringify(core))
 }
 
-/** 프로필 사실 요약 한 줄 (전략 화면 배지용) */
-export function profileSummary(profile: CompanyProfile | null): string {
-  if (!profile) return ''
-  const f = profile.facts
-  const latest = [...f.financials].reverse().find((x) => x.revenue !== null)
-  const parts = [f.headcount !== null ? `직원 ${f.headcount}명` : '', latest ? `${latest.year}년 매출 ${formatWon(latest.revenue)}` : '', f.certifications.length ? f.certifications[0] : '']
-  return parts.filter(Boolean).join(' · ')
+/**
+ * 전략 화면 배지용 한 줄 — 업종 · 근로자 · 최근 매출 · 업력.
+ * 기업인증(이노비즈·벤처 등)은 여기에 넣지 않는다. 1차 미팅에서 먼저 꺼낼 정보가 아니다.
+ */
+export function profileSummary(company: Parameters<typeof coreSummaryLine>[0], profile: CompanyProfile | null): string {
+  return coreSummaryLine(company, profile)
 }

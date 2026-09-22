@@ -1,17 +1,18 @@
 /**
  * PDF로 1분 준비 — 파일 선택 → (브라우저에서) 텍스트 추출 → 구조화 → "PDF에서 이 내용을 찾았습니다" 검토 → 중복 확인 → 저장 → 전략.
- *   - 원본 PDF 는 어디에도 업로드하지 않는다. 구조화된 값 + 근거(페이지·원문 한 줄)만 저장한다.
+ *   - 원본 PDF는 어디에도 업로드하지 않는다. 구조화된 값 + 근거(페이지·원문 한 줄)만 저장한다.
  *   - 읽은 값은 바로 저장하지 않는다. 각 항목을 [수정] [사용 안 함] 할 수 있다. 잘못된 값 하나 때문에 고객을 지울 필요가 없다.
  *   - 기존 고객과 비슷하면 자동 생성하지 않고 [기존 고객에 정보 추가](항목별 기존 유지/PDF 반영) 또는 [새 고객으로 등록] 을 고른다.
  *   - 진행 단계 표시, 취소 가능, 실패해도 막히지 않는다(직접 30초 등록 / 다른 PDF).
  */
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, FileText, Upload, X } from 'lucide-react'
+import { ArrowLeft, Check, FileText, Pencil, Upload, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { CaseStudy, Company, CompanyFieldKey, EvidenceField, FieldSources, Headcount, Industry, Interest, ProfileFacts, TradeType } from '../types/domain'
+import type { CaseStudy, Company, CompanyFieldKey, CompanyProfile, EvidenceField, FieldSources, Headcount, Industry, Interest, ProfileFacts, TradeType } from '../types/domain'
 import { Badge, Button, ChoiceGrid, EvidenceBadge, Sheet, TextInput, useToast } from '../components/ui'
 import { EvidenceList } from '../components/EvidenceList'
+import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { formatWon } from '../engine/docParser/korean'
 import { HEADCOUNT_LABEL, HEADCOUNT_ORDER, INDUSTRY_LABEL, INDUSTRY_ORDER, INTEREST_LABEL, INTEREST_ORDER, TRADE_LABEL, TRADE_ORDER } from '../content/labels'
 import { MeetingTimePicker, resolveMeetingTime, type MeetingTimeValue } from '../components/MeetingTimePicker'
@@ -58,6 +59,9 @@ export default function PdfIntakePage() {
   const [meetingTime, setMeetingTime] = useState<MeetingTimeValue>({ mode: 'now' })
   const [pdfCore, setPdfCore] = useState<Set<CompanyFieldKey>>(new Set())
   const [busy, setBusy] = useState(false)
+  /** 기본 화면은 핵심 4가지만. [수정] 과 [추출정보 전체보기] 를 눌러야 나머지가 보인다 */
+  const [editing, setEditing] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   // 중복 / 병합
   const [similar, setSimilar] = useState<Company[] | null>(null)
@@ -75,6 +79,14 @@ export default function PdfIntakePage() {
   }, [companyId, repo, user])
 
   const facts: ProfileFacts | null = useMemo(() => (parsed ? applyEvidence(parsed.facts, evidence) : null), [parsed, evidence])
+  /** 저장 전 미리보기용 프로필 — 핵심 요약 카드가 같은 규칙으로 값을 고른다 */
+  const previewProfile: CompanyProfile | null = useMemo(
+    () =>
+      parsed && facts
+        ? { id: 'preview', companyId: 'preview', sourceType: 'pdf', sourceName: parsed.docKind, sourceFileName: file?.name ?? '', sourceHash: text?.sha256 ?? '', pageCount: text?.pageCount ?? 0, facts, evidence, parser: { adapter: parsed.adapter, version: parsed.version, textChars: parsed.textChars, warnings: parsed.warnings }, createdBy: user.id, createdAt: new Date().toISOString() }
+        : null,
+    [parsed, facts, evidence, file, text, user.id],
+  )
 
   function reset(keepFile = false) {
     abortRef.current?.abort()
@@ -92,7 +104,7 @@ export default function PdfIntakePage() {
 
   async function start(f: File) {
     if (!/pdf$/i.test(f.name) && f.type !== 'application/pdf') return toast.show('PDF 파일만 올릴 수 있습니다.', 'danger')
-    if (f.size > 40 * 1024 * 1024) return toast.show('40MB 이하의 PDF 만 처리합니다.', 'danger')
+    if (f.size > 40 * 1024 * 1024) return toast.show('40MB 이하의 PDF만 처리합니다.', 'danger')
     setFile(f)
     setPhase('working')
     setStage(0)
@@ -146,7 +158,7 @@ export default function PdfIntakePage() {
         /* ignore */
       }
       if (p.evidence.length === 0) {
-        setFailMsg('PDF 를 읽었지만 회사명·대표자·직원수 같은 기업정보 항목을 찾지 못했습니다. 기업정보 보고서·회사소개서 형식이 아닐 수 있습니다.')
+        setFailMsg('PDF를 읽었지만 회사명·대표자·직원수 같은 기업정보 항목을 찾지 못했습니다. 기업정보 보고서·회사소개서 형식이 아닐 수 있습니다.')
         setPhase('failed')
         void repo.track(user, 'pdf_failed', null, { reason: 'no_fields', pageCount: t.pageCount })
         return
@@ -165,7 +177,7 @@ export default function PdfIntakePage() {
       }
     } catch (cause) {
       if ((cause as { name?: string })?.name === 'AbortError') return
-      setFailMsg(cause instanceof Error ? `PDF 를 처리하지 못했습니다: ${cause.message}` : 'PDF 를 처리하지 못했습니다.')
+      setFailMsg(cause instanceof Error ? `PDF를 처리하지 못했습니다: ${cause.message}` : 'PDF를 처리하지 못했습니다.')
       setPhase('failed')
       void repo.track(user, 'pdf_failed', null, { reason: 'error' })
     } finally {
@@ -335,7 +347,7 @@ export default function PdfIntakePage() {
   const removedCount = evidence.length - activeEvidence.length
 
   return (
-    <div className="mx-auto max-w-[860px] pb-28 sm:pb-8">
+    <div className="mx-auto max-w-[860px] pb-6 sm:pb-8">
       <div className="flex items-center justify-between gap-3">
         <Link to={target ? `/companies/${target.id}` : '/companies/new'} className="t-sub inline-flex items-center gap-1 text-ink-500 hover:text-ink-900">
           <ArrowLeft aria-hidden="true" className="size-4" /> {target ? '미팅 전략으로' : '가져오기 방법'}
@@ -352,7 +364,7 @@ export default function PdfIntakePage() {
       {phase === 'pick' && (
         <section className="reveal mt-3">
           <h1 className="t-page">{target ? `${target.name}에 기업자료 추가` : 'PDF로 1분 준비'}</h1>
-          <p className="t-body mt-2 text-ink-500">기업정보 · 크레탑 · 신용정보 · 회사소개서 PDF 를 올리면 브라우저에서 바로 읽습니다. 원본 파일은 저장하지 않습니다.</p>
+          <p className="t-body mt-2 text-ink-500">기업정보 · 크레탑 · 신용정보 · 회사소개서 PDF를 올리면 브라우저에서 바로 읽습니다. 원본 파일은 저장하지 않습니다.</p>
           <div
             onDragOver={(e) => {
               e.preventDefault()
@@ -370,11 +382,11 @@ export default function PdfIntakePage() {
               PDF 선택
               <input ref={inputRef} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(e) => e.target.files?.[0] && void start(e.target.files[0])} data-testid="pdf-input" />
             </label>
-            <p className="t-meta mt-4 text-ink-500">텍스트가 있는 PDF 만 읽습니다 (스캔 이미지 PDF 는 아직 지원하지 않습니다). 40MB 이하.</p>
+            <p className="t-meta mt-4 text-ink-500">텍스트가 있는 PDF만 읽습니다 (스캔 이미지 PDF는 아직 지원하지 않습니다). 40MB 이하.</p>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/companies/new/quick" className="t-sub font-semibold text-accent-700 hover:underline">
-              PDF 가 없으면 30초 빠른 등록 →
+              PDF가 없으면 30초 빠른 등록 →
             </Link>
           </div>
         </section>
@@ -430,31 +442,43 @@ export default function PdfIntakePage() {
       {/* 3) 검토 */}
       {(phase === 'review' || phase === 'merge') && parsed && text && (
         <section className="reveal mt-3" data-testid="pdf-review">
-          <h1 className="t-page">PDF에서 이 내용을 찾았습니다</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Badge tone="info">{parsed.docKind}</Badge>
-            <Badge>{text.pageCount}쪽</Badge>
-            <Badge tone="ok">{activeEvidence.length}개 항목</Badge>
-            {removedCount > 0 && <Badge tone="warn">{removedCount}개 사용 안 함</Badge>}
-            <span className="t-meta text-ink-500">원본은 저장하지 않음 · 브라우저에서만 처리</span>
-          </div>
-          {parsed.warnings.length > 0 && (
-            <ul className="t-sub mt-3 space-y-1 rounded-(--radius-control) bg-warn-50 px-4 py-3 text-warn-700" data-testid="pdf-warnings">
-              {parsed.warnings.map((w) => (
-                <li key={w}>⚠ {w}</li>
-              ))}
-            </ul>
-          )}
-
-          <div className="mt-5">
-            <EvidenceList evidence={evidence} onEdit={editField} onRemove={removeField} onRestore={restoreField} />
-          </div>
+          <h1 className="t-page">이 회사가 맞나요?</h1>
+          <p className="t-sub mt-1 text-ink-500">
+            {parsed.docKind} {text.pageCount}쪽에서 읽었습니다. 원본 PDF는 저장하지 않고 브라우저에서만 처리했습니다.
+          </p>
 
           {phase === 'review' && (
-            <>
-              <h2 className="t-section mt-8">핵심 정보 확인</h2>
-              <p className="t-sub mt-1 text-ink-500">PDF 에서 온 값은 그대로 두거나 바꿀 수 있습니다. 모르면 "잘 모르겠음".</p>
-              <div className="mt-4 space-y-6">
+            <div className="mt-5 space-y-5">
+              <CompanyCoreSummary
+                company={{ name: name || '회사명을 확인해 주세요', industry: industry ?? 'other', industryNote, headcount: headcount ?? 'unknown', representativeName: rep }}
+                profile={previewProfile}
+                action={
+                  <Button size="sm" onClick={() => setEditing((v) => !v)} aria-expanded={editing} data-testid="core-edit">
+                    <Pencil aria-hidden="true" className="size-4" /> {editing ? '닫기' : '수정'}
+                  </Button>
+                }
+              />
+
+              <div>
+                <p className="t-section mb-2.5">미팅</p>
+                <MeetingTimePicker value={meetingTime} onChange={setMeetingTime} />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={() => setDetailOpen(true)} data-testid="open-evidence">
+                  <FileText aria-hidden="true" className="size-4" /> 추출정보 전체보기 ({activeEvidence.length})
+                </Button>
+                {parsed.warnings.length > 0 && (
+                  <span className="t-meta font-semibold text-warn-700" data-testid="pdf-warning-count">
+                    ⚠ 확인 권장 {parsed.warnings.length}건
+                  </span>
+                )}
+                {removedCount > 0 && <span className="t-meta text-ink-500">사용 안 함 {removedCount}개</span>}
+              </div>
+
+              {editing && (
+                <div className="reveal space-y-6 rounded-(--radius-card) border border-line bg-paper px-4 py-5 sm:px-5" data-testid="core-edit-form">
+                  <p className="t-sub text-ink-500">PDF에서 온 값은 그대로 두거나 바꿀 수 있습니다. 모르면 "잘 모르겠음"을 고르세요.</p>
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-2 text-[1rem] font-bold">
                     회사명 {pdfCore.has('name') && <Badge tone="info">PDF</Badge>}
@@ -505,12 +529,9 @@ export default function PdfIntakePage() {
                   <p className="t-section mb-2.5">대표 관심사</p>
                   <ChoiceGrid columns={3} multi ariaLabel="대표 관심사" options={INTEREST_ORDER.map((v) => ({ value: v, label: INTEREST_LABEL[v] }))} value={interests} onChange={toggleInterest} />
                 </div>
-                <div>
-                  <p className="t-section mb-2.5">미팅 일시</p>
-                  <MeetingTimePicker value={meetingTime} onChange={setMeetingTime} />
                 </div>
-              </div>
-            </>
+              )}
+            </div>
           )}
 
           {phase === 'merge' && target && (
@@ -542,7 +563,7 @@ export default function PdfIntakePage() {
           )}
 
           {/* 하단 고정 CTA */}
-          <div className="fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+          <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 mt-6 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
             <div className="mx-auto flex max-w-[860px] flex-wrap items-center justify-between gap-3 sm:border-t sm:border-line sm:pt-5">
               <Button onClick={() => reset()} disabled={busy} data-testid="pdf-retry">
                 다른 PDF
@@ -571,10 +592,25 @@ export default function PdfIntakePage() {
         </section>
       )}
 
+      {/* 추출정보 전체보기 — 기본 Journey 에서는 보이지 않는다 */}
+      <Sheet open={detailOpen} onClose={() => setDetailOpen(false)} title="추출정보 전체보기" wide testId="evidence-sheet">
+        <p className="t-sub text-ink-500">재무·기업인증·주소·제품·특허·신용정보까지 PDF에서 읽은 값 전체입니다. 값을 고치거나 [사용 안 함]으로 뺄 수 있습니다.</p>
+        {parsed && parsed.warnings.length > 0 && (
+          <ul className="t-sub mt-3 space-y-1 rounded-(--radius-control) bg-warn-50 px-4 py-3 text-warn-700" data-testid="pdf-warnings">
+            {parsed.warnings.map((w) => (
+              <li key={w}>⚠ {w}</li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4">
+          <EvidenceList evidence={evidence} onEdit={editField} onRemove={removeField} onRestore={restoreField} />
+        </div>
+      </Sheet>
+
       {/* 중복 안내 — 자동 생성 금지 */}
       <Sheet open={Boolean(similar)} onClose={() => setSimilar(null)} title="이미 등록된 고객과 비슷합니다" testId="dup-sheet">
         <p className="t-body text-ink-700">
-          PDF 에서 찾은 <b>{name}</b> 와(과) 비슷한 고객이 있습니다. 같은 회사라면 기존 고객에 정보를 추가하세요.
+          PDF에서 찾은 <b>{name}</b> 와(과) 비슷한 고객이 있습니다. 같은 회사라면 기존 고객에 정보를 추가하세요.
         </p>
         <ul className="mt-3 divide-y divide-line overflow-hidden rounded-(--radius-control) border border-line">
           {(similar ?? []).map((c) => (

@@ -17,6 +17,11 @@ async function uploadFixture(page: Page) {
   await expect(page.getByTestId('pdf-review')).toBeVisible({ timeout: 45_000 })
 }
 const row = (page: Page, key: string) => page.locator(`[data-testid="evidence-row"][data-key="${key}"]`)
+const coreItem = (page: Page, key: string) => page.locator(`[data-testid="core-item"][data-key="${key}"]`)
+async function openEvidence(page: Page) {
+  await page.getByTestId('open-evidence').click()
+  await expect(page.getByTestId('evidence-sheet')).toBeVisible()
+}
 
 test.describe('지능형 등록', () => {
   test('PDF로 1분 준비 — 업로드 → 추출(페이지·근거) → 확인 → 회사 생성 → 사례 자동매칭(이유) → 전략 자동생성 → 근거 보기', async ({ page }, testInfo) => {
@@ -30,65 +35,82 @@ test.describe('지능형 등록', () => {
     await page.screenshot({ path: `${SHOTS}/${tag}-02-pdf-pick.png`, fullPage: true })
     await uploadFixture(page)
 
-    // 추출값 — 값 · 상태 · 페이지 · 원문
-    await expect(row(page, 'companyName')).toContainText('테스트정밀')
-    await expect(row(page, 'headcount')).toContainText('14명')
+    // 기본 화면에는 핵심 4가지만 — 인증·특허·주소·신용등급·재무 상세는 보이지 않는다
+    await expect(page.getByTestId('core-name')).toContainText('테스트정밀')
+    await expect(page.getByTestId('core-rep')).toContainText('김가상')
+    await expect(coreItem(page, 'industry')).toContainText('자동차 부품')
+    await expect(coreItem(page, 'headcount')).toContainText('14명')
+    await expect(coreItem(page, 'revenue')).toContainText('112.3억원')
+    await expect(coreItem(page, 'years')).toContainText('년')
+    await expect(page.getByTestId('core-summary')).toHaveCount(1)
+    const reviewText = (await page.getByTestId('pdf-review').textContent()) ?? ''
+    for (const hidden of ['기업부설연구소', 'BBB', '부채총계', '특허', '화성시']) expect(reviewText, `기본 화면에 ${hidden} 노출`).not.toContain(hidden)
+    await expect(page.getByTestId('evidence-list')).toHaveCount(0)
+    await expect(page.getByTestId('meeting-time')).toHaveAttribute('data-mode', 'now')
+    await page.screenshot({ path: `${SHOTS}/${tag}-03-pdf-review.png`, fullPage: true })
+
+    // 나머지는 [추출정보 전체보기] 안에 그대로 있다
+    await openEvidence(page)
     await expect(row(page, 'headcount')).toContainText('PDF 2p')
-    await expect(row(page, 'headcount')).toContainText('확인')
     await expect(row(page, 'tradeType')).toContainText('추정')
     await expect(page.locator('[data-testid="fin-cell"][data-key="fin_revenue_2025"]')).toContainText('112.3억')
     await expect(page.getByTestId('fin-row')).toHaveCount(6)
-    await expect(row(page, 'revenueTrend')).toContainText('매출 증가')
     await expect(row(page, 'certifications')).toContainText('기업부설연구소')
-    // 개인정보 줄은 어디에도 없다
     await expect(page.getByTestId('evidence-list')).not.toContainText('000000-1000000')
     await expect(page.getByTestId('evidence-list')).not.toContainText('자택')
-    // 핵심 정보가 PDF 로 채워졌다 (거래형태는 추정 배지)
+    await page.screenshot({ path: `${SHOTS}/${tag}-03b-pdf-evidence.png`, fullPage: true })
+    await page.keyboard.press('Escape')
+
+    // [수정] 을 눌러야 상세 입력이 열린다
+    await page.getByTestId('core-edit').click()
     await expect(page.getByTestId('company-name')).toHaveValue('테스트정밀')
     await expect(page.getByRole('radio', { name: '제조' })).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByRole('radio', { name: '11~20명' })).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByRole('radio', { name: 'B2B', exact: true })).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByTestId('meeting-time')).toHaveAttribute('data-mode', 'now')
-    await page.screenshot({ path: `${SHOTS}/${tag}-03-pdf-review.png`, fullPage: true })
+    await page.getByTestId('core-edit').click()
 
     // 저장 전에는 고객이 없다
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]').length)).toBe(0)
     await page.getByTestId('pdf-confirm').click()
-    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀은 이렇게 접근하세요')
-    await expect(page.getByTestId('strategy-confidence')).toHaveAttribute('data-level', 'high')
-    await expect(page.getByTestId('strategy-approach')).toContainText(/접근|확인/)
-    await expect(page.getByRole('list', { name: '오늘 공략 포인트' }).getByRole('listitem')).toHaveCount(3)
-    // 사례 2~3개, 종류가 다르고, 각 사례에 추천 이유
-    const cs = page.getByTestId('strategy-case')
+    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀')
+    await expect(page.getByTestId('strategy-approach')).toContainText(/오늘은/)
+    await expect(page.getByRole('list', { name: '오늘 확인할 것' }).getByRole('listitem')).toHaveCount(3)
+    // 사례는 최대 2개, 전부 같은 업종, 각 카드에 추천 이유
+    const cs = page.getByTestId('case-row')
     const n = await cs.count()
-    expect(n).toBeGreaterThanOrEqual(2)
-    expect(n).toBeLessThanOrEqual(3)
-    const kinds = new Set(await cs.evaluateAll((els) => els.map((e) => e.getAttribute('data-kind'))))
-    expect(kinds.size).toBe(n)
-    for (let i = 0; i < n; i++) await expect(cs.nth(i)).toContainText('왜 추천했나요?')
-    await expect(page.getByTestId('case-row').first()).toBeVisible()
+    expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThanOrEqual(2)
+    await expect(page.getByTestId('case-notice')).toHaveCount(0)
+    await expect(page.getByTestId('question-count')).toContainText(/오늘 질문 [5-7]개 준비됨/)
+    // 질문·멘트·주의는 첫 화면에 펼쳐 두지 않는다
+    const stratText = (await page.locator('main').textContent()) ?? ''
+    expect(stratText).not.toContain('대표님이 직접 확인해야')
+    expect(stratText).not.toContain('수백만 원')
     await page.screenshot({ path: `${SHOTS}/${tag}-04-strategy.png`, fullPage: true })
-    // 문서 → 가설 → 질문
-    await page.getByTestId('fold-questions').getByRole('button').first().click()
+    // 상세 전략 — 문서 → 가설 → 질문
+    await page.getByTestId('open-detail').click()
     expect(await page.getByTestId('hypothesis').count()).toBeGreaterThanOrEqual(1)
     await expect(page.getByTestId('hypothesis').first()).toContainText('가능성')
-    // 말하는 법 · 주의
-    await page.getByTestId('fold-scripts').getByRole('button').first().click()
+    await page.screenshot({ path: `${SHOTS}/${tag}-05-strategy-open.png`, fullPage: true })
+    await page.keyboard.press('Escape')
+    // 영업 팁
+    await page.getByTestId('open-tips').click()
     await expect(page.locator('[data-testid="script"][data-key="opening"]')).toContainText('대표님')
     await expect(page.locator('[data-testid="script"][data-key="price"]')).toContainText('수백만 원')
-    await page.getByTestId('fold-forbidden').getByRole('button').first().click()
-    await expect(page.getByTestId('fold-forbidden')).toContainText('후불')
-    await expect(page.getByTestId('fold-forbidden')).toContainText('매출')
-    await page.screenshot({ path: `${SHOTS}/${tag}-05-strategy-open.png`, fullPage: true })
+    await expect(page.getByTestId('sheet-tips')).toContainText('후불')
+    await page.keyboard.press('Escape')
     // 왜 이렇게 판단했나요?
     await page.getByTestId('open-sources').click()
+    await expect(page.getByTestId('strategy-confidence')).toHaveAttribute('data-level', 'high')
     await expect(page.getByTestId('strategy-sources')).toContainText('PDF 2p')
     await expect(page.getByTestId('strategy-sources')).toContainText('추정')
     await page.screenshot({ path: `${SHOTS}/${tag}-06-sources.png`, fullPage: true })
     await page.keyboard.press('Escape')
-    // 기업자료 — 원본 저장 안 함
+    // 기업자료 — 원본 저장 안 함 (관리 시트 안)
+    await page.getByTestId('open-docs').click()
     await expect(page.getByTestId('profile-row')).toHaveCount(1)
     await expect(page.getByTestId('profile-row')).toContainText('원본 저장 안 함')
+    await page.keyboard.press('Escape')
     // 사용 이벤트
     const events = await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.usage_events') ?? '[]').map((e: { eventType: string }) => e.eventType))
     for (const ev of ['pdf_uploaded', 'pdf_parsed', 'pdf_confirmed', 'strategy_generated', 'case_auto_matched']) expect(events).toContain(ev)
@@ -98,32 +120,38 @@ test.describe('지능형 등록', () => {
     await loginPartner(page)
     await page.goto('/companies/new/pdf')
     await uploadFixture(page)
-    // 직원수 사용 안 함 → 인원은 "잘 모르겠음"
+    await openEvidence(page)
+    // 직원수 사용 안 함 → 핵심 요약에서 사라진다
     await row(page, 'headcount').getByTestId('evidence-remove').click()
     await expect(row(page, 'headcount')).toHaveAttribute('data-removed', 'true')
-    await expect(page.getByRole('radio', { name: '잘 모르겠음' }).first()).toHaveAttribute('aria-checked', 'true')
     // 회사명 수정
     await row(page, 'companyName').getByTestId('evidence-edit').click()
     await page.getByTestId('evidence-edit-input').fill('테스트정밀상사')
     await page.getByTestId('evidence-edit-save').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('core-name')).toContainText('테스트정밀상사')
+    await expect(coreItem(page, 'headcount')).toHaveCount(0)
+    await page.getByTestId('core-edit').click()
     await expect(page.getByTestId('company-name')).toHaveValue('테스트정밀상사')
+    await expect(page.getByRole('radio', { name: '잘 모르겠음' }).first()).toHaveAttribute('aria-checked', 'true')
+    await page.getByTestId('core-edit').click()
     await page.getByTestId('pdf-confirm').click()
-    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀상사은 이렇게 접근하세요')
+    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀상사')
     await page.getByTestId('open-sources').click()
     const hcRow = page.getByTestId('source-row').filter({ hasText: '인원' })
     await expect(hcRow).toContainText('잘 모르겠음')
     await expect(hcRow).toContainText('아직 미확인')
     await page.keyboard.press('Escape')
-    // 기업자료에서 되돌리면 즉시 재계산 — 직원 14명 가설이 생긴다
-    await page.getByTestId('fold-questions').getByRole('button').first().click()
-    const before = await page.getByTestId('hypothesis').count()
-    await page.getByTestId('open-profile').click()
-    const sheetRow = page.getByTestId('profile-sheet').locator('[data-testid="evidence-row"][data-key="headcount"]')
+    // 기업자료에서 되돌리면 즉시 재계산 — 핵심 요약에 근로자가 다시 나온다
+    await page.getByTestId('open-docs').click()
+    const sheetRow = page.getByTestId('sheet-docs').locator('[data-testid="evidence-row"][data-key="headcount"]')
     await sheetRow.getByTestId('evidence-restore').click()
     await expect(sheetRow).toHaveAttribute('data-removed', 'false')
     await page.keyboard.press('Escape')
+    await expect(coreItem(page, 'headcount')).toContainText('14명')
+    await page.getByTestId('open-detail').click()
     await expect(page.getByTestId('hypothesis').filter({ hasText: '직원 14명' })).toHaveCount(1)
-    expect(await page.getByTestId('hypothesis').count()).toBeGreaterThanOrEqual(before)
+    await page.keyboard.press('Escape')
     // 정보 수정 화면에서 인원을 바꾸면 근거도 바뀐다
     await page.getByRole('link', { name: '정보 수정' }).click()
     await expect(page.getByTestId('prep-progress')).toHaveText(/1 \/ 3/)
@@ -154,8 +182,10 @@ test.describe('지능형 등록', () => {
     await page.locator('[data-testid="merge-row"][data-key="representativeName"]').getByTestId('merge-pdf').click()
     await page.screenshot({ path: `${SHOTS}/${tag}-08-merge.png`, fullPage: true })
     await page.getByTestId('merge-confirm').click()
-    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀은 이렇게 접근하세요')
+    await expect(page.getByTestId('strategy-title')).toContainText('테스트정밀')
+    await page.getByTestId('open-docs').click()
     await expect(page.getByTestId('profile-row')).toHaveCount(1)
+    await page.keyboard.press('Escape')
     const companies = await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]') as { name: string; representativeName: string; phone: string; fieldSources: Record<string, string> }[])
     expect(companies).toHaveLength(1)
     expect(companies[0].representativeName).toBe('김가상')
@@ -194,8 +224,11 @@ test.describe('지능형 등록', () => {
     await expect(page.getByTestId('time-custom')).toContainText('15:00')
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]').length)).toBe(0)
     await page.getByTestId('company-save').click()
-    await expect(page.getByTestId('strategy-title')).toContainText('ABC산업은 이렇게 접근하세요')
-    await expect(page.getByText('AX Fit 최우선 검토')).toBeVisible() // 사전진단 연결 (회사명+연락처)
+    await expect(page.getByTestId('strategy-title')).toContainText('ABC산업')
+    // 사전진단 연결(회사명+연락처) — 첫 화면이 아니라 관리 시트 안에서 확인한다
+    await page.getByTestId('open-docs').click()
+    await expect(page.getByText('AX Fit 최우선 검토')).toBeVisible()
+    await page.keyboard.press('Escape')
     const events = await page.evaluate(() => JSON.parse(localStorage.getItem('axpartner.usage_events') ?? '[]').map((e: { eventType: string }) => e.eventType))
     expect(events).toContain('voice_intake_used')
     // 항목별 마이크 — 한글로 읽은 번호를 정규화
@@ -240,7 +273,8 @@ test.describe('지능형 등록', () => {
     await expect(page.getByTestId('meeting-time')).toHaveAttribute('data-mode', 'none')
     await page.getByTestId('time-now').click()
     await page.getByTestId('company-save').click()
-    await expect(page.getByTestId('strategy-title')).toContainText('오늘 시각테스트은')
+    await expect(page.getByTestId('strategy-title')).toContainText('시각테스트')
+    await expect(page.getByTestId('strategy-title')).toContainText('미팅 오늘')
   })
 
   test('삭제 권한 — 다른 파트너는 남의 고객을 보지도 못하고, 마스터는 누가 등록했든 보관·복구·영구삭제', async ({ page }) => {
@@ -289,15 +323,11 @@ test.describe('지능형 등록', () => {
   test('전략 자동매칭 — 제조 / B2B / 11~20 / 견적·발주 신호 → 추천 이유가 있는 실제 사례 2~3개', async ({ page }) => {
     await loginPartner(page)
     await prepareCompany(page, '매칭테스트')
-    const cs = page.getByTestId('strategy-case')
+    const cs = page.getByTestId('case-row')
     const n = await cs.count()
-    expect(n).toBeGreaterThanOrEqual(2)
-    expect(n).toBeLessThanOrEqual(3)
-    for (let i = 0; i < n; i++) {
-      await expect(cs.nth(i)).toContainText('왜 추천했나요?')
-      await expect(cs.nth(i).getByTestId('case-row')).toBeVisible()
-    }
-    await expect(cs.first()).toContainText(/같은 업종|가까운 업종|문제 구조/)
+    expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThanOrEqual(2)
+    await expect(cs.first()).toContainText(/같은 업종|세부분야|문제 구조|규모/)
     await expect(page.locator('[data-testid="focus-item"][data-area="quote_order"]')).toHaveCount(1)
   })
 })

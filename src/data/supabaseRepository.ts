@@ -397,7 +397,7 @@ export class SupabaseRepository implements Repository {
   /** SECURITY DEFINER RPC — 소유권 검증 · meeting_id 기준 idempotent · customer_events 발행 */
   async submitHandoff(_u: CurrentUser, meetingId: string, payload: HandoffPayload, customerSafe: Record<string, unknown>): Promise<HandoffSubmitResult> {
     const { data, error } = await this.client.rpc('partner_submit_handoff', { p_meeting_id: meetingId, p_payload: payload, p_customer_safe: customerSafe })
-    if (error) fail(error, '운영 OS 로 전달하지 못했습니다.')
+    if (error) fail(error, '운영 OS로 전달하지 못했습니다.')
     const r = data as Row
     return { handoff: handoffFromRow(obj<Row>(r.handoff, {})), created: r.created === true }
   }

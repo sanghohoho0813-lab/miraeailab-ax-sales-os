@@ -325,7 +325,7 @@ export interface Meeting {
   status: MeetingStatus
   /** 이 미팅에서 쓰기로 고른 질문 순서 */
   questionIds: string[]
-  /** 원본 답변 — AI 가 덮어쓰지 않는다 */
+  /** 원본 답변 — AI가 덮어쓰지 않는다 */
   answers: Record<string, Answer>
   skippedQuestionIds: string[]
   /** 대표가 답하기 어려워한 질문 */
@@ -348,7 +348,7 @@ export interface Meeting {
 
 export type HandoffStatus = 'draft' | 'submitted' | 'received' | 'reviewing' | 'proposal_ready' | 'withdrawn'
 
-/** 운영 OS 로 넘기는 구조화 데이터 — PDF 가 아니라 이것이 본체다 */
+/** 운영 OS로 넘기는 구조화 데이터 — PDF가 아니라 이것이 본체다 */
 export interface HandoffPayload {
   version: 1
   company: {
@@ -397,7 +397,7 @@ export interface Handoff {
   payload: HandoffPayload
   /** 운영 OS customer_events.id — 전달 성공의 증거 */
   customerEventId: string | null
-  /** 운영 OS 에서 연결한 고객사 id (있으면) */
+  /** 운영 OS에서 연결한 고객사 id (있으면) */
   operationsClientId: string | null
   submittedAt: string | null
   receivedAt: string | null

@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './lib/auth'
 import { AppShell } from './components/AppShell'
+import { ScrollToTop } from './components/ScrollToTop'
 import { Spinner } from './components/ui'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -45,6 +46,15 @@ function MasterOnly({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  return (
+    <>
+      <ScrollToTop />
+      <AppRoutes />
+    </>
+  )
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

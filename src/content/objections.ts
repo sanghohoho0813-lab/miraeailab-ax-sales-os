@@ -12,14 +12,14 @@ export const OBJECTIONS: Objection[] = [
   {
     id: 'has_erp',
     customerSays: 'ERP 있는데요.',
-    answer: 'ERP 를 바꾸려는 게 아니라, ERP 밖에서 아직 사람이 반복하고 있는 일을 찾는 겁니다.',
-    nextQuestion: 'ERP 에 입력하고 나서 다시 엑셀이나 카톡으로 관리하는 업무가 있나요?',
+    answer: 'ERP를 바꾸려는 게 아니라, ERP 밖에서 아직 사람이 반복하고 있는 일을 찾는 겁니다.',
+    nextQuestion: 'ERP에 입력하고 나서 다시 엑셀이나 카톡으로 관리하는 업무가 있나요?',
     playbookId: 'explain_ax',
   },
   {
     id: 'need_ai',
-    customerSays: 'AI 가 꼭 필요한가요?',
-    answer: 'AI 는 마지막에 붙는 판단 기능이고, 먼저 필요한 건 흩어진 업무가 한 곳에 모이는 구조입니다.',
+    customerSays: 'AI가 꼭 필요한가요?',
+    answer: 'AI는 마지막에 붙는 판단 기능이고, 먼저 필요한 건 흩어진 업무가 한 곳에 모이는 구조입니다.',
     nextQuestion: '지금 어떤 건이 어디까지 됐는지 보려면 몇 군데를 봐야 하나요?',
     playbookId: 'explain_ax',
   },
@@ -33,7 +33,7 @@ export const OBJECTIONS: Objection[] = [
   {
     id: 'fund_broker',
     customerSays: '정책자금 받아주는 건가요?',
-    answer: '자금을 받아드리는 게 아니라, 회사 문제를 시스템으로 바꾸고 실제로 쓰면서 쌓이는 변화가 나중에 정책금융이나 R&D 를 설명하는 근거가 되게 하는 겁니다.',
+    answer: '자금을 받아드리는 게 아니라, 회사 문제를 시스템으로 바꾸고 실제로 쓰면서 쌓이는 변화가 나중에 정책금융이나 R&D를 설명하는 근거가 되게 하는 겁니다.',
     nextQuestion: '지금 대표님이 직접 확인해야 진행되는 업무가 많은 편인가요?',
     playbookId: 'connect_funding',
   },

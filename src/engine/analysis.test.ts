@@ -61,15 +61,32 @@ function meeting(c: Company, values: Record<string, string>, over: Partial<Meeti
   }
 }
 
+/** 질문 선택과 무관하게 분석 엔진을 검증할 때 — 질문 id 와 답을 함께 붙인다 */
+function withExtra(m: Meeting, id: string, value: string, source: 'consultant' | 'diagnosis' = 'consultant'): Meeting {
+  return { ...m, questionIds: [...m.questionIds, id], answers: { ...m.answers, [id]: { questionId: id, value, source, at: T } } }
+}
+
 describe('질문 선택', () => {
-  it('5~10개를 고르고 핵심 5개를 항상 포함한다', () => {
+  it('5~7개만 고른다 — Core 4(대표 의존도·업무 흐름·고객관리·현재 시스템) + Adaptive 최대 2', () => {
     for (const ind of ['manufacturing', 'distribution', 'construction', 'service', 'food', 'logistics', 'medical', 'environment', 'other'] as const) {
       const qs = selectQuestions(company({ industry: ind, tradeType: 'both', interests: ['efficiency', 'sales', 'policy_fund'] }))
-      expect(qs.length).toBeGreaterThanOrEqual(5)
-      expect(qs.length).toBeLessThanOrEqual(10)
-      for (const core of ['ceo_dependency', 'repetitive_work', 'info_scatter', 'current_system', 'internal_owner']) expect(qs.map((q) => q.id)).toContain(core)
-      expect(new Set(qs.map((q) => q.id)).size).toBe(qs.length)
+      const ids = qs.map((q) => q.id)
+      expect(qs.length, `${ind} 질문 수`).toBeGreaterThanOrEqual(5)
+      expect(qs.length, `${ind} 질문 수`).toBeLessThanOrEqual(7)
+      for (const core of ['ceo_dependency', 'customer_mgmt', 'current_system']) expect(ids, ind).toContain(core)
+      // 반복업무와 정보분산은 둘 중 하나만 묻는다
+      expect(ids.filter((x) => x === 'repetitive_work' || x === 'info_scatter')).toHaveLength(1)
+      expect(new Set(ids).size).toBe(qs.length)
     }
+  })
+  it('내부 담당자 질문은 첫 미팅 Core 에서 뺀다', () => {
+    expect(selectQuestions(company({ interests: ['efficiency'] })).map((q) => q.id)).not.toContain('internal_owner')
+  })
+  it('업무 흐름 질문 — 사전진단이 있으면 더 강한 쪽, 없으면 업종 기본값', () => {
+    const withDiag = company({ industry: 'service', diagnosis: { leadId: 'l', grade: 'HIGH', score: 80, answers: { repeatInput: 'always', toolGaps: 'no' }, submittedAt: T, matchedBy: 'matched' } })
+    expect(selectQuestions(withDiag).map((q) => q.id)).toContain('repetitive_work')
+    expect(selectQuestions(company({ industry: 'manufacturing' })).map((q) => q.id)).toContain('repetitive_work')
+    expect(selectQuestions(company({ industry: 'service' })).map((q) => q.id)).toContain('info_scatter')
   })
   it('정책자금 질문은 대표가 관심을 보인 경우에만 넣는다', () => {
     expect(selectQuestions(company({ interests: ['efficiency'] })).map((q) => q.id)).not.toContain('funding_interest')
@@ -99,7 +116,8 @@ describe('사전진단 미리채움', () => {
 describe('분석 엔진', () => {
   it('강한 신호가 많고 연결 필요·다수 사용이면 LEVEL C (Full AX)', () => {
     const c = company()
-    const m = meeting(c, { ceo_dependency: 'very_high', repetitive_work: 'high', info_scatter: 'very_high', current_system: 'partial', customer_mgmt: 'memory', quote_order: 'phone_chat', hiring_burden: 'yes', growth_plan: 'aggressive', internal_owner: 'dedicated', data_potential: 'scattered', mfg_process: 'high' })
+    const base = meeting(c, { ceo_dependency: 'very_high', repetitive_work: 'high', current_system: 'partial', customer_mgmt: 'memory', quote_order: 'phone_chat', hiring_burden: 'yes' })
+    const m = withExtra(withExtra(base, 'internal_owner', 'dedicated'), 'growth_plan', 'aggressive')
     const a = analyzeMeeting(c, m, CASE_SEED)
     expect(a.scopeLevel).toBe('C')
     expect(a.axNeed).toBe('high')
@@ -123,14 +141,15 @@ describe('분석 엔진', () => {
     expect(a.axNeed).toBe('low')
   })
   it('반복업무가 한 구간에 한정되면 LEVEL A (간단 자동화)', () => {
-    const c = company({ headcount: '6-10', tradeType: 'b2c', industry: 'service', interests: ['efficiency'] })
-    const m = meeting(c, { ceo_dependency: 'mid', repetitive_work: 'high', info_scatter: 'low', current_system: 'covered', customer_mgmt: 'system', internal_owner: 'partTime', growth_plan: 'steady', hiring_burden: 'no', svc_booking: 'low', med_followup: 'low' })
+    const c = company({ headcount: '6-10', tradeType: 'b2c', industry: 'manufacturing', interests: ['efficiency'] })
+    const m = meeting(c, { ceo_dependency: 'mid', repetitive_work: 'high', current_system: 'covered', customer_mgmt: 'system', hiring_burden: 'no', mfg_process: 'low' })
     const a = analyzeMeeting(c, m, CASE_SEED)
     expect(a.scopeLevel).toBe('A')
   })
   it('자금 관심은 AX 필요도와 분리되고 절대표현 알림에 반영된다', () => {
     const c = company({ interests: ['policy_fund'] })
-    const m = meeting(c, { ceo_dependency: 'low', repetitive_work: 'low', info_scatter: 'low', funding_interest: 'high', growth_plan: 'aggressive', internal_owner: 'ceo' })
+    const base = meeting(c, { ceo_dependency: 'low', repetitive_work: 'low', current_system: 'covered', customer_mgmt: 'system', funding_interest: 'high' })
+    const m = withExtra(withExtra(base, 'growth_plan', 'aggressive'), 'data_potential', 'none')
     const a = analyzeMeeting(c, m, CASE_SEED)
     expect(a.axNeed).toBe('low')
     expect(a.fundingReadiness).not.toBe('low')
@@ -138,8 +157,8 @@ describe('분석 엔진', () => {
   })
   it('사전진단으로만 채운 답은 추정(assumed)으로, 잘 모르겠음은 미확인으로 분류한다', () => {
     const c = company()
-    const m = meeting(c, { ceo_dependency: 'high', repetitive_work: 'unknown' })
-    m.answers.info_scatter = { questionId: 'info_scatter', value: 'very_high', source: 'diagnosis', at: T }
+    const base = meeting(c, { ceo_dependency: 'high', repetitive_work: 'unknown' })
+    const m = withExtra(base, 'info_scatter', 'very_high', 'diagnosis')
     const a = analyzeMeeting(c, m, CASE_SEED)
     expect(a.assumptions.some((f) => f.key === 'info_scatter' && f.status === 'assumed')).toBe(true)
     expect(a.unknowns.some((f) => f.key === 'repetitive_work')).toBe(true)
@@ -154,34 +173,80 @@ describe('분석 엔진', () => {
   })
 })
 
-describe('유사사례 추천', () => {
-  it('①은 같은/가까운 업종, ②는 다른 업종의 문제구조 사례', () => {
+describe('유사사례 추천 — 동종업계 우선', () => {
+  const label = (a: Parameters<typeof AREA_LABEL.__proto__.valueOf>[0] extends never ? never : keyof typeof AREA_LABEL) => AREA_LABEL[a]
+
+  it('같은 업종 사례가 있으면 다른 업종은 기본 추천에 올라오지 않는다', () => {
+    for (const ind of ['manufacturing', 'service', 'food', 'medical', 'construction', 'environment', 'distribution'] as const) {
+      const c = company({ industry: ind })
+      const rec = recommendCases(CASE_SEED, c, ['quote_order', 'customer_mgmt'], { areaLabel: label })
+      expect(rec.pool, ind).toBe('industry')
+      expect(rec.picks.length, ind).toBeGreaterThan(0)
+      expect(rec.picks.length, ind).toBeLessThanOrEqual(2)
+      expect(rec.fallback, ind).toBeNull()
+      for (const m of rec.picks) expect(m.caseStudy.industry, `${ind} 추천에 타업종 혼입`).toBe(ind)
+    }
+  })
+
+  it('광고·마케팅 회사에는 광고·마케팅·콘텐츠 쪽 사례가 오고 화훼·외식 사례는 오지 않는다', () => {
+    const c = company({ industry: 'service', industryNote: '광고·마케팅·크리에이티브', headcount: '1-5', tradeType: 'b2b', interests: ['sales', 'customer'] })
+    const rec = recommendCases(CASE_SEED, c, ['customer_mgmt', 'repurchase'], {
+      areaLabel: label,
+      profile: { subIndustry: '광고·마케팅 서비스', keywords: ['광고', '마케팅', '콘텐츠', '디자인'] },
+    })
+    expect(rec.picks.length).toBeGreaterThan(0)
+    for (const m of rec.picks) {
+      expect(m.caseStudy.industry).toBe('service')
+      expect(/농업|화훼|스마트팜|외식|프랜차이즈|식품/.test(`${m.caseStudy.subIndustry} ${m.caseStudy.researchSection}`)).toBe(false)
+    }
+    // 세부분야가 겹치면 그 이유가 카드에 나온다
+    expect(rec.picks.some((m) => m.kind === 'sub_industry' || m.reasons.some((r) => r.includes('세부분야')))).toBe(true)
+  })
+
+  it('억지로 3개를 채우지 않는다 — 최대 2개', () => {
     const c = company({ industry: 'manufacturing' })
-    const rec = recommendCases(CASE_SEED, c, ['quote_order', 'repurchase'], { areaLabel: (a) => AREA_LABEL[a] })
-    expect(rec.primary?.caseStudy.industry).toBe('manufacturing')
-    expect(rec.secondary?.caseStudy.industry).not.toBe('manufacturing')
-    expect(rec.secondary?.whySimilar).toContain('문제 구조')
+    const rec = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: label })
+    expect(rec.picks.length).toBeLessThanOrEqual(2)
   })
-  it('자금 관심이 없으면 AX 전환 서술이 없는 자금·선정 레퍼런스를 위로 올리지 않는다', () => {
+
+  it('같은 업종에 검수된 사례가 없으면 0개 또는 참고 사례 1개만, 그리고 참고라고 표시된다', () => {
+    const onlyFood = CASE_SEED.filter((x) => x.industry === 'food')
+    const c = company({ industry: 'medical' })
+    const rec = recommendCases(onlyFood, c, ['customer_mgmt'], { areaLabel: label })
+    expect(rec.picks).toHaveLength(0)
+    expect(rec.pool).not.toBe('industry')
+    if (rec.fallback) {
+      expect(rec.fallback.kind).toBe('near')
+      expect(rec.fallback.kindLabel).toContain('참고')
+    }
+    // 의료는 인접업종 fallback 을 쓰지 않으므로 키워드가 겹치지 않으면 아무것도 주지 않는다
+    const nothing = recommendCases(onlyFood, company({ industry: 'medical', industryNote: '' }), [], { areaLabel: label })
+    expect(nothing.picks).toHaveLength(0)
+  })
+
+  it('자금 관심이 없으면 AX 전환 서술이 없는 자금·선정 레퍼런스는 추천하지 않는다', () => {
     const c = company({ industry: 'construction' })
-    const rec = recommendCases(CASE_SEED, c, ['info_scatter'], { areaLabel: (a) => AREA_LABEL[a], fundingInterest: false })
-    expect(rec.primary).not.toBeNull()
-    expect(rec.primary?.caseStudy.axTransition.length).toBeGreaterThan(0)
-    expect(rec.primary?.caseStudy.reviewRequired).toBeFalsy()
-    expect(rec.primary?.caseStudy.fundingForm?.startsWith('TIPS 선정')).toBeFalsy()
+    const rec = recommendCases(CASE_SEED, c, ['info_scatter'], { areaLabel: label, fundingInterest: false })
+    expect(rec.picks.length).toBeGreaterThan(0)
+    for (const m of rec.picks) {
+      expect(m.caseStudy.axTransition.length).toBeGreaterThan(0)
+      expect(m.caseStudy.reviewRequired).toBeFalsy()
+    }
   })
+
   it('검수 필요(needs_review) 사례는 기본 추천에서 빠지고, 옵션을 켜면 포함된다', () => {
     const c = company({ industry: 'manufacturing' })
-    const base = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: (a) => AREA_LABEL[a] })
-    expect([base.primary, base.secondary, ...base.others].every((m) => !m || m.caseStudy.verificationStatus === 'verified')).toBe(true)
-    const all = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: (a) => AREA_LABEL[a], includeReviewRequired: true })
+    const base = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: label })
+    expect([...base.picks, ...base.others].every((m) => m.caseStudy.verificationStatus === 'verified')).toBe(true)
+    const all = recommendCases(CASE_SEED, c, ['repetitive_work'], { areaLabel: label, includeReviewRequired: true })
     expect(all.others.length).toBeGreaterThan(base.others.length)
   })
+
   it('소규모 고객에게는 10억 미만 사례가 먼저 온다', () => {
     const c = company({ industry: 'food', headcount: '6-10' })
-    const rec = recommendCases(CASE_SEED, c, ['customer_mgmt'], { areaLabel: (a) => AREA_LABEL[a] })
-    expect(rec.primary?.caseStudy.fundingAmountDisclosed ?? 0).toBeLessThan(1_000_000_000)
-    expect(rec.primary?.reasons).toContain('10억 미만 현실적 규모')
+    const rec = recommendCases(CASE_SEED, c, ['customer_mgmt'], { areaLabel: label })
+    expect(rec.picks[0]?.caseStudy.fundingAmountDisclosed ?? 0).toBeLessThan(1_000_000_000)
+    expect(rec.picks[0]?.reasons).toContain('10억 미만 현실적 규모')
   })
 })
 

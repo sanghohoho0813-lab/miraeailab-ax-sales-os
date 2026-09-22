@@ -1,10 +1,11 @@
 /**
- * 공통 UI — 큰 글자·큰 버튼·과도한 카드 금지. 홈페이지·운영 OS 의 Tailwind 패턴을 따르되 브랜드 토큰을 쓴다.
+ * 공통 UI — 큰 글자·큰 버튼·과도한 카드 금지. 홈페이지·운영 OS의 Tailwind 패턴을 따르되 브랜드 토큰을 쓴다.
  */
 import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EvidenceStatus, Level } from '../types/domain'
 import { EVIDENCE_LABEL, LEVEL_LABEL } from '../content/labels'
+import { josa } from '../content/korean'
 
 /* ── Button ───────────────────────────────────────────────── */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dark'
@@ -421,7 +422,8 @@ export function DangerModal({
         {typedConfirm && (
           <label className="block">
             <span className="t-sub mb-1.5 block font-bold text-ink-700">
-              확인을 위해 <span className="rounded bg-paper-2 px-1.5 py-0.5 font-black text-ink-900">{typedConfirm}</span> 을(를) 입력하세요
+              확인을 위해 <span className="rounded bg-paper-2 px-1.5 py-0.5 font-black text-ink-900">{typedConfirm}</span>
+              {josa(typedConfirm, '을/를')} 그대로 입력하세요
             </span>
             <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={typedConfirm} autoComplete="off" data-testid="danger-typed" />
           </label>

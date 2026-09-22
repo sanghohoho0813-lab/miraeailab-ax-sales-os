@@ -5,7 +5,7 @@
  *   partner / master / (없음) 을 판정한다. 파트너 등록은 마스터가 한다.
  * local 모드: 로그인 없이 역할만 고른다(시연·e2e).
  *
- * UI 는 이 컨텍스트와 Repository 만 쓰고 Supabase SDK 를 직접 호출하지 않는다.
+ * UI는 이 컨텍스트와 Repository 만 쓰고 Supabase SDK 를 직접 호출하지 않는다.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'

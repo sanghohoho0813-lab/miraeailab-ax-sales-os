@@ -1,7 +1,7 @@
 /**
  * PDF → 줄 단위 텍스트 (브라우저, pdf.js). 원본 파일은 메모리에서만 다루고 어디에도 업로드하지 않는다.
  * pdf.js 는 필요할 때만 동적으로 불러온다 (메인 번들에 들어가지 않는다).
- * OCR 은 하지 않는다 — 텍스트 레이어가 없으면 hasTextLayer=false 로 돌려주고 UI 가 직접 등록을 안내한다.
+ * OCR 은 하지 않는다 — 텍스트 레이어가 없으면 hasTextLayer=false 로 돌려주고 UI가 직접 등록을 안내한다.
  */
 import type { TextDoc, TextPage } from '../engine/docParser/types'
 import { sha256Hex } from './hash'

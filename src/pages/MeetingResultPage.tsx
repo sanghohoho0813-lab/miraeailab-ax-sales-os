@@ -2,18 +2,19 @@
  * AFTER — 요약이 먼저. 오늘 확인한 핵심 01/02/03 (HIGH/MEDIUM) → 추천 범위 → [분석 자세히 보기].
  * 그 다음 가장 강한 CTA [김상호 대표에게 2차 제안 요청] → 로딩 → 성공 모션 → 상태.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Printer, RefreshCw, Send, Pencil, CheckCircle2, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, Handoff, Meeting, QuestionArea } from '../types/domain'
 import { AccentStrip, Badge, Button, EvidenceBadge, FlatSection, Insight, LevelBadge, Section, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
-import { AREA_LABEL, HANDOFF_STATUS_LABEL, LEVEL_KO, VALUE_AREA_LABEL, VALUE_AREA_ORDER } from '../content/labels'
+import { HANDOFF_STATUS_LABEL, LEVEL_KO, VALUE_AREA_LABEL, VALUE_AREA_ORDER } from '../content/labels'
 import { QUESTIONS } from '../content/questions'
 import { guardText } from '../content/forbidden'
 import { analyzeMeeting } from '../engine/analysis'
 import { buildCustomerSafeEventPayload, buildHandoffPayload } from '../engine/handoffBuilder'
+import { scrollWindowTop } from '../components/ScrollToTop'
 import { formatDate } from '../lib/util'
 
 function intensityOf(area: QuestionArea, meeting: Meeting): 'high' | 'medium' {
@@ -37,6 +38,11 @@ export default function MeetingResultPage() {
   const [busy, setBusy] = useState(false)
   const [justSent, setJustSent] = useState(false)
   const [detail, setDetail] = useState(false)
+
+  // 분석 결과는 언제나 첫 줄부터 — LIVE 에서 내려둔 스크롤이 따라오지 않게 한다
+  useLayoutEffect(() => {
+    scrollWindowTop()
+  }, [meetingId])
 
   useEffect(() => {
     if (!meetingId) return
@@ -106,33 +112,28 @@ export default function MeetingResultPage() {
             {formatDate(meeting.endedAt ?? meeting.updatedAt, true)} · 분석 v{a.version}
           </span>
         </div>
-        <h1 className="t-page mt-3">오늘 확인한 핵심</h1>
+        <h1 className="t-page mt-3" data-testid="result-title">
+          {company.name} 미팅 분석 완료
+        </h1>
+        <p className="t-sub mt-1 text-ink-500">오늘 확인한 핵심 {top.length}가지입니다.</p>
         {top.length === 0 ? (
           <p className="t-body mt-3 rounded-(--radius-card) border border-dashed border-line-strong bg-white px-5 py-6 text-ink-500">강한 문제 신호가 없습니다. 추가 확인 질문으로 2차 미팅에서 채우세요.</p>
         ) : (
-          <ol className="mt-5 grid gap-3 md:grid-cols-3" aria-label="핵심 문제">
+          <ol className="mt-4 divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white" aria-label="핵심 문제">
             {top.map((p, i) => {
               const lvl = intensityOf(p.area, meeting)
               return (
-                <li key={p.area} className="reveal rounded-(--radius-card) border border-line bg-white p-5" style={{ animationDelay: `${i * 60}ms` }} data-testid="core-finding">
-                  <div className="flex items-center justify-between">
-                    <span className="tnum t-meta font-black tracking-[0.15em] text-accent-700">0{i + 1}</span>
-                    <LevelBadge level={lvl} />
-                  </div>
-                  <p className="mt-2 text-[1.15rem] font-bold leading-snug">{p.title}</p>
-                  <p className="t-sub mt-2 text-ink-700">{p.loss}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <EvidenceBadge status={p.status} />
-                    <Badge>{AREA_LABEL[p.area]}</Badge>
-                  </div>
+                <li key={p.area} className="flex items-center gap-3 px-4 py-3" data-testid="core-finding">
+                  <span className="tnum t-meta shrink-0 font-black tracking-[0.15em] text-accent-700">0{i + 1}</span>
+                  <p className="min-w-0 flex-1 text-[1.05rem] font-bold leading-snug break-keep">{p.title}</p>
+                  <LevelBadge level={lvl} />
                 </li>
               )
             })}
           </ol>
         )}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-[1.3fr_1fr]">
-          <Insight>{a.todaysPoint}</Insight>
+        <div className="mt-6">
           <div className="rounded-(--radius-card) border border-line bg-white p-5">
             <p className="t-meta font-black tracking-wide text-ink-500">추천 범위</p>
             <p className="mt-2 flex flex-wrap items-center gap-2 text-[1.15rem] font-bold">
@@ -157,7 +158,7 @@ export default function MeetingResultPage() {
             <p className="t-section text-warn-700" data-testid="handoff-withdrawn">철회된 2차 제안 요청</p>
             <p className="t-sub mt-1 text-ink-700">
               {handoff.withdrawnAt && `${formatDate(handoff.withdrawnAt, true)} 철회`}
-              {handoff.withdrawReason && ` · ${handoff.withdrawReason}`} — 운영 OS 에서도 보류로 표시됩니다. 다시 전달하면 같은 요청이 다시 열립니다.
+              {handoff.withdrawReason && ` · ${handoff.withdrawReason}`} — 운영 OS에서도 보류로 표시됩니다. 다시 전달하면 같은 요청이 다시 열립니다.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="primary" size="lg" onClick={() => void submit()} disabled={busy} data-testid="submit-handoff">
@@ -184,7 +185,7 @@ export default function MeetingResultPage() {
         ) : (
           <div>
             <p className="t-section">김상호 대표에게 2차 제안 요청</p>
-            <p className="t-sub mt-1 text-ink-700">PDF 가 아니라 구조화 데이터로 운영 OS 에 바로 들어갑니다. 두 번 눌러도 한 번만 등록됩니다.</p>
+            <p className="t-sub mt-1 text-ink-700">PDF가 아니라 구조화 데이터로 운영 OS에 바로 들어갑니다. 두 번 눌러도 한 번만 등록됩니다.</p>
             <Button variant="primary" size="lg" className="mt-4 w-full sm:w-auto sm:min-w-[320px]" onClick={() => void submit()} disabled={busy} data-testid="submit-handoff">
               {busy ? (
                 <>
@@ -230,6 +231,7 @@ export default function MeetingResultPage() {
       {/* 상세 */}
       {detail && (
         <div className="reveal space-y-8" data-testid="analysis-detail">
+          <Insight>{a.todaysPoint}</Insight>
           <Section title="핵심 문제 TOP 3" sub="문제 → 발생하는 손실/기회 → AX 해결구조">
             <ol className="space-y-3">
               {a.painPoints.map((p) => (
@@ -275,7 +277,7 @@ export default function MeetingResultPage() {
                 </p>
               </div>
             </div>
-            <p className="t-meta mt-3 text-ink-500">자금 때문에 AX 를 권하지 않습니다.</p>
+            <p className="t-meta mt-3 text-ink-500">자금 때문에 AX를 권하지 않습니다.</p>
           </Section>
 
           {a.recommendedStructure.length > 0 && (
@@ -305,7 +307,7 @@ export default function MeetingResultPage() {
           </FlatSection>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Section title="가치가 발생할 가능성이 높은 영역" sub="정확한 3년 가치금액은 Master OS 에서 만듭니다.">
+            <Section title="가치가 발생할 가능성이 높은 영역" sub="정확한 3년 가치금액은 Master OS에서 만듭니다.">
               <ul className="space-y-1.5">
                 {VALUE_AREA_ORDER.map((k) => (
                   <li key={k} className="flex items-center justify-between rounded-(--radius-control) border border-line px-3 py-2">
@@ -343,7 +345,7 @@ export default function MeetingResultPage() {
             </Link>
           </AccentStrip>
 
-          <Section title="사실 · 추정 · 미확인" sub="AI 가 추론한 값은 사실처럼 저장하거나 고객 문서에 노출하지 않습니다.">
+          <Section title="사실 · 추정 · 미확인" sub="AI가 추론한 값은 사실처럼 저장하거나 고객 문서에 노출하지 않습니다.">
             <div className="grid gap-4 md:grid-cols-3">
               {(
                 [

@@ -196,11 +196,11 @@ export class LocalRepository implements Repository {
     }
     if (activeHandoffs > 0) {
       canDelete = false
-      reason = '운영 OS 에 전달된 2차 제안 요청이 있습니다. 먼저 요청을 철회하거나 고객을 보관 상태로 두세요.'
+      reason = '운영 OS에 전달된 2차 제안 요청이 있습니다. 먼저 요청을 철회하거나 고객을 보관 상태로 두세요.'
     }
     if (canDelete && transmitted > 0 && !isMaster(user)) {
       canDelete = false
-      reason = '운영 OS 에 전달된 이력이 있는 고객은 마스터만 영구 삭제할 수 있습니다.'
+      reason = '운영 OS에 전달된 이력이 있는 고객은 마스터만 영구 삭제할 수 있습니다.'
     }
     return { name: c.name, meetings: meetings.length, analyzed: meetings.filter((m) => m.status === 'analyzed' || m.status === 'submitted').length, handoffs: handoffs.length, activeHandoffs, transmitted, usageEvents, canDelete, reason, requiresMaster: transmitted > 0 }
   }
@@ -299,11 +299,11 @@ export class LocalRepository implements Repository {
   async deleteMeeting(user: CurrentUser, id: string): Promise<void> {
     const m = await this.getMeeting(user, id)
     if (!m) throw new Error('미팅을 찾을 수 없습니다.')
-    if (m.status === 'submitted') throw new Error('운영 OS 에 전달된 미팅은 삭제할 수 없습니다. 전달 요청을 먼저 철회하세요.')
+    if (m.status === 'submitted') throw new Error('운영 OS에 전달된 미팅은 삭제할 수 없습니다. 전달 요청을 먼저 철회하세요.')
     if (m.status === 'live') throw new Error('진행 중인 미팅은 먼저 취소해야 삭제할 수 있습니다.')
     if (m.status === 'analyzed' && !isMaster(user)) throw new Error('분석이 끝난 미팅 삭제는 마스터 확인이 필요합니다.')
     if (this.handoffs().some((h) => h.meetingId === id && (h.customerEventId || ['submitted', 'received', 'reviewing', 'proposal_ready'].includes(h.status)))) {
-      throw new Error('운영 OS 에 전달된 이력이 있는 미팅은 삭제할 수 없습니다.')
+      throw new Error('운영 OS에 전달된 이력이 있는 미팅은 삭제할 수 없습니다.')
     }
     write(KEYS.meetings, this.meetings().filter((x) => x.id !== id))
     write(KEYS.handoffs, this.handoffs().filter((h) => h.meetingId !== id))

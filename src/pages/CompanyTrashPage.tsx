@@ -1,6 +1,6 @@
 /**
  * 고객 휴지통 — 보관된 고객. 복구 또는 영구 삭제(2단계: 영향 범위 → 회사명 입력).
- * 운영 OS 에 전달된 요청이 있는 고객은 DB 가 영구 삭제를 거부한다 — 화면은 그 이유를 그대로 보여 준다.
+ * 운영 OS에 전달된 요청이 있는 고객은 DB 가 영구 삭제를 거부한다 — 화면은 그 이유를 그대로 보여 준다.
  */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -9,6 +9,7 @@ import { useSession } from '../lib/auth'
 import type { Company, CompanyDeletePreview, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { Badge, Button, DangerModal, EmptyState, PageTitle, SkeletonList, useToast } from '../components/ui'
 import { INDUSTRY_LABEL } from '../content/labels'
+import { josa } from '../content/korean'
 import { formatDate } from '../lib/util'
 
 export default function CompanyTrashPage() {
@@ -38,7 +39,7 @@ export default function CompanyTrashPage() {
 
   async function restore(c: Company) {
     await repo.restoreCompany(user, c.id)
-    toast.show(`${c.name}을(를) 복구했습니다.`, 'ok')
+    toast.show(`${c.name}${josa(c.name, '을/를')} 복구했습니다.`, 'ok')
     await load()
   }
   async function openDelete(c: Company) {
@@ -54,7 +55,7 @@ export default function CompanyTrashPage() {
     setBusy(true)
     try {
       await repo.deleteCompanyPermanent(user, target.company.id, typedName)
-      toast.show(`${target.company.name}을(를) 영구 삭제했습니다.`, 'ok')
+      toast.show(`${target.company.name}${josa(target.company.name, '을/를')} 영구 삭제했습니다.`, 'ok')
       setTarget(null)
       await load()
     } catch (cause) {

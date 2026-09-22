@@ -25,7 +25,7 @@ import type {
 import { QUESTION_BY_ID, answerIntensity, optionLabel } from '../content/questions'
 import { AREA_LABEL, HEADCOUNT_LABEL, INDUSTRY_LABEL, SCOPE_LABEL, TRADE_LABEL } from '../content/labels'
 import { TODAYS_POINTS } from '../content/playbook'
-import { recommendCases } from './caseMatcher'
+import { recommendCases, shownCases } from './caseMatcher'
 import { nowIso } from '../lib/util'
 
 /* ------------------------------------------------------------------ */
@@ -207,7 +207,7 @@ export function analyzeMeeting(company: Company, meeting: Meeting, cases: CaseSt
     reasons.push('반복업무가 한두 구간에 한정돼 있어 그 구간만 자동화해도 효과가 난다')
   } else {
     scopeLevel = 'B'
-    reasons.push(`강한 문제 영역 ${strongAreas.length}개 — 가장 자주 끊기는 구간부터 부분 AX 로 시작할 수 있다`)
+    reasons.push(`강한 문제 영역 ${strongAreas.length}개 — 가장 자주 끊기는 구간부터 부분 AX로 시작할 수 있다`)
   }
   if (scopeLevel !== 'D' && owner === 'none') reasons.push('단, 내부 담당자가 없어 정착 계획을 먼저 세워야 한다')
   if (customerScreen && (company.tradeType === 'b2b' || company.tradeType === 'both')) reasons.push('거래처 접점(주문·견적·재구매)이 있어 고객포털 결합 가능성이 있다')
@@ -282,7 +282,7 @@ export function analyzeMeeting(company: Company, meeting: Meeting, cases: CaseSt
 
   /* 7) 절대 하면 안 될 표현 */
   const forbiddenReminders = ['"정책자금 나오면 개발비 주시면 됩니다"', '"후불 가능합니다"', '"AX 하면 정책자금 받을 수 있습니다"', '"비슷한 회사가 5억 받았으니 대표님도 가능합니다"']
-  if ((g('funding_interest') ?? 0) >= 2) forbiddenReminders.push('자금 관심이 높은 대표입니다 — 자금을 AX 의 이유로 만들지 마세요')
+  if ((g('funding_interest') ?? 0) >= 2) forbiddenReminders.push('자금 관심이 높은 대표입니다 — 자금을 AX의 이유로 만들지 마세요')
 
   /* 8) 오늘의 AX 포인트 — 딱 하나 */
   const unknownCount = unknowns.length
@@ -295,8 +295,8 @@ export function analyzeMeeting(company: Company, meeting: Meeting, cases: CaseSt
 
   /* 9) 유사사례 */
   const rec = recommendCases(cases, company, painPoints.map((p) => p.area), { growthAnswer: growth, fundingInterest: (g('funding_interest') ?? 0) >= 1, areaLabel: (a) => AREA_LABEL[a] })
-  // 컨설턴트가 미팅에 쓰기로 고른 사례(pinned)를 먼저, 그다음 추천 ①②
-  const similarCaseIds = Array.from(new Set([...(company.pinnedCaseIds ?? []).filter((id) => cases.some((c) => c.id === id)), rec.primary?.caseStudy.id, rec.secondary?.caseStudy.id].filter((x): x is string => Boolean(x)))).slice(0, 3)
+  // 컨설턴트가 미팅에 쓰기로 고른 사례(pinned)를 먼저, 그다음 동종업계 추천 (없으면 없는 대로)
+  const similarCaseIds = Array.from(new Set([...(company.pinnedCaseIds ?? []).filter((id) => cases.some((c) => c.id === id)), ...shownCases(rec).map((m) => m.caseStudy.id)])).slice(0, 3)
 
   /* 10) CLIENT SAFE 요약 */
   const clientSafeSummary = [

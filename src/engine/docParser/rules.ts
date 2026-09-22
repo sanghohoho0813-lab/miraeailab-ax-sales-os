@@ -78,10 +78,18 @@ function findAll(doc: TextDoc, patterns: RegExp[]): Hit[] {
   return hits
 }
 
+/**
+ * 회사명 정리 — 같은 줄에 붙어 오는 다음 항목 라벨을 잘라낸다.
+ * 크레탑·기업정보 보고서는 "매시브크리에이티브 영문기업명 MassiveCreative" 처럼 한 줄에 두 항목이 들어오는 경우가 있다.
+ * 새 패턴을 무한정 늘리지 않고, 실제 문서에서 확인된 라벨만 넣는다.
+ */
+const TRAILING_LABELS = /\s*(영문\s*기업명|영문\s*회사명|영문\s*상호|영문명|영문|English\s*Name|대표자명|대표이사|대표자|대표|사업자\s*등록번호|법인\s*등록번호|설립일자|설립일|업종|주소|소재지|전화번호|대표전화)\s*[:：]?\s*.*$/i
+
 function cleanCompanyName(v: string): string {
   return v
-    .replace(/\s*(대표자|대표이사|대표)\s*[:：]?.*$/, '')
+    .replace(TRAILING_LABELS, '')
     .replace(/\s*\|.*$/, '')
+    .replace(/\s*\([^)]*\)\s*$/, '')
     .replace(/^(?:주식회사|㈜|\(주\))\s*/, '')
     .replace(/\s*(?:주식회사|㈜|\(주\))$/, '')
     .trim()

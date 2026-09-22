@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, LifeBuoy, Mic, MicOff, SkipForward, Quote, X } from 'lucide-react'
+import { ChevronLeft, LifeBuoy, Mic, MicOff, SkipForward, Quote, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, Meeting } from '../types/domain'
 import { Badge, Button, ChoiceGrid, SaveStatusPill, Sheet, SkeletonList, TextArea, useToast } from '../components/ui'
@@ -20,7 +20,7 @@ import { optionLabel } from '../content/questions'
 
 import { getSpeechRecognition as getSpeech, type SpeechRecognitionLike } from '../lib/speech'
 
-type SheetKind = null | 'why' | 'say' | 'quote' | 'coach' | 'prefilled'
+type SheetKind = null | 'say' | 'quote' | 'coach' | 'prefilled'
 type CoachTab = 'now' | 'price' | 'deferred' | 'funding'
 
 export default function MeetingLivePage() {
@@ -158,7 +158,7 @@ export default function MeetingLivePage() {
   function openSheet(kind: Exclude<SheetKind, null>, tab?: CoachTab) {
     setSheet(kind)
     if (tab) setCoachTab(tab)
-    if (meeting && (kind === 'why' || kind === 'say' || kind === 'coach')) void repo.track(user, 'tip_opened', meeting.id, { kind, questionId: qid })
+    if (meeting && (kind === 'say' || kind === 'coach')) void repo.track(user, 'tip_opened', meeting.id, { kind, questionId: qid })
   }
   const closeSheet = useCallback(() => setSheet(null), [])
 
@@ -259,30 +259,20 @@ export default function MeetingLivePage() {
             <ChoiceGrid columns={2} ariaLabel={question.title} options={question.options} value={answer?.source === 'consultant' ? answer.value : null} onChange={choose} />
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Button size="md" onClick={() => openSheet('why')} data-testid="open-why">
-              왜 묻나요?
-            </Button>
-            <Button size="md" onClick={() => openSheet('say')} data-testid="open-say">
-              이렇게 말하세요
-            </Button>
+          {/* 선택지를 누르면 저장하고 바로 다음 질문으로 간다 — [다음] 버튼은 두지 않는다 */}
+          <div className="mt-4">
+            <button type="button" onClick={() => openSheet('say')} className="nav-item t-sub rounded-(--radius-control) px-1 py-1 font-semibold text-accent-700 hover:underline" data-testid="open-say">
+              어떻게 물어보지?
+            </button>
           </div>
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-            <Button size="sm" variant="ghost" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0}>
+          <div className="mt-6 flex items-center justify-between gap-2 border-t border-line pt-3">
+            <Button size="sm" variant="ghost" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0} data-testid="prev">
               <ChevronLeft aria-hidden="true" className="size-4" /> 이전
             </Button>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant={meeting.hardQuestionIds.includes(question.id) ? 'dark' : 'ghost'} onClick={toggleHard} aria-pressed={meeting.hardQuestionIds.includes(question.id)}>
-                대표가 답하기 어려워함
-              </Button>
-              <Button size="sm" onClick={skip} data-testid="skip">
-                <SkipForward aria-hidden="true" className="size-4" /> 건너뛰기
-              </Button>
-              <Button size="sm" onClick={() => setIndex((i) => i + 1)}>
-                다음 <ChevronRight aria-hidden="true" className="size-4" />
-              </Button>
-            </div>
+            <Button size="sm" variant="ghost" onClick={skip} data-testid="skip">
+              건너뛰기 <SkipForward aria-hidden="true" className="size-4" />
+            </Button>
           </div>
         </div>
       ) : (
@@ -342,18 +332,30 @@ export default function MeetingLivePage() {
             {meeting.keyQuote.trim() && <span className="ml-1 inline-flex size-2 rounded-full bg-white" aria-label="기록 있음" />}
           </button>
         )}
-        <button type="button" onClick={() => openSheet('coach', 'now')} data-testid="open-coach" className="btn inline-flex items-center justify-center gap-2 rounded-full bg-ink-900 px-4 py-3 text-[0.95rem] font-bold text-white shadow-(--shadow-float) hover:bg-ink-700" aria-haspopup="dialog">
-          <LifeBuoy aria-hidden="true" className="size-5" /> 코치{coach.now.length > 0 && <span className="tnum ml-0.5 rounded-full bg-accent-600 px-1.5 text-[0.75rem]">{coach.now.length}</span>}
+        <button type="button" onClick={() => openSheet('coach', 'now')} data-testid="open-coach" className="btn inline-flex items-center justify-center gap-2 rounded-full border border-line-strong bg-white px-4 py-3 text-[0.95rem] font-bold text-ink-700 shadow-(--shadow-float) hover:bg-paper-2" aria-haspopup="dialog">
+          <LifeBuoy aria-hidden="true" className="size-5" /> 코치{coach.now.length > 0 && <span className="tnum ml-0.5 rounded-full bg-accent-600 px-1.5 text-[0.75rem] text-white">{coach.now.length}</span>}
         </button>
       </div>
 
-      {/* 시트 — 왜 묻나요 / 이렇게 말하세요 */}
-      <Sheet open={sheet === 'why'} onClose={closeSheet} title="왜 묻나요?" testId="sheet-why">
-        <p className="t-body text-ink-900">{question?.why}</p>
-      </Sheet>
-      <Sheet open={sheet === 'say'} onClose={closeSheet} title="이렇게 말하세요" testId="sheet-say">
+      {/* 시트 — 이렇게 말하세요 (왜 묻는지와 "답하기 어려워함" 도 여기 안에) */}
+      <Sheet open={sheet === 'say'} onClose={closeSheet} title="어떻게 물어보지?" testId="sheet-say">
         <p className="text-[1.15rem] font-semibold leading-relaxed text-ink-900">"{question?.say}"</p>
         <p className="t-sub mt-3 text-ink-500">정확한 숫자를 캐묻지 않습니다. 방향과 강도를 먼저 듣고, 선택지에서 고릅니다.</p>
+        {question && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <Button size="sm" variant={meeting.hardQuestionIds.includes(question.id) ? 'dark' : 'ghost'} onClick={toggleHard} aria-pressed={meeting.hardQuestionIds.includes(question.id)} data-testid="hard">
+              대표가 답하기 어려워함
+            </Button>
+          </div>
+        )}
+        <details className="mt-3" onToggle={(e) => e.currentTarget.open && meeting && void repo.track(user, 'tip_opened', meeting.id, { kind: 'why', questionId: qid })}>
+          <summary className="t-sub cursor-pointer font-semibold text-accent-700" data-testid="open-why">
+            왜 묻나요?
+          </summary>
+          <p className="t-body mt-2 text-ink-900" data-testid="why-body">
+            {question?.why}
+          </p>
+        </details>
       </Sheet>
 
       {/* 시트 — 대표 핵심말 기록 */}

@@ -192,7 +192,7 @@ export default function CasesPage() {
       const areas = planQuestions(context).all.slice(0, 4).map((x) => x.area)
       const fundingInterest = context.interests.some((i) => i === 'policy_fund' || i === 'gov_support' || i === 'rnd' || i === 'venture')
       const rec = recommendCases(filtered, context, areas, { areaLabel: (a) => AREA_LABEL[a], fundingInterest })
-      return [rec.primary, rec.secondary, ...rec.others].filter((m): m is NonNullable<typeof m> => Boolean(m)).slice(0, 12)
+      return [...rec.picks, ...(rec.fallback ? [rec.fallback] : []), ...rec.others].slice(0, 12)
     }
     return filtered
       .filter((c) => c.verificationStatus === 'verified' && !c.reviewRequired && c.fundingAmountDisclosed !== null && c.fundingAmountDisclosed < 1_000_000_000)

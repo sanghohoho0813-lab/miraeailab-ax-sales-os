@@ -2,7 +2,9 @@
  * 회사 프로필 도우미 — 빈 facts, 인원 구간, 업종 매핑, 최신 프로필 선택, 근거 조회.
  * 순수 함수. 프로필은 "문서에 있는 것만" 담고, 추정은 status 로 구분한다.
  */
-import type { CompanyProfile, EvidenceField, Headcount, Industry, ProfileFacts } from '../types/domain'
+import type { Company, CompanyProfile, EvidenceField, Headcount, Industry, ProfileFacts } from '../types/domain'
+import { HEADCOUNT_LABEL, INDUSTRY_LABEL } from '../content/labels'
+import { formatWonShort } from './docParser/korean'
 
 export function emptyFacts(): ProfileFacts {
   return {
@@ -144,4 +146,41 @@ export function applyEvidence(base: ProfileFacts, evidence: EvidenceField[]): Pr
 /** 근거 표시용 값 문자열 — 검토 화면에서 수정 입력의 초기값 */
 export function evidenceEditValue(e: EvidenceField): string {
   return e.value === null ? '' : String(e.value)
+}
+
+/* ------------------------------------------------------------------ */
+/* 1차 미팅용 핵심 4가지 — 업종 · 근로자 · 최근 매출 · 업력                */
+/* ------------------------------------------------------------------ */
+
+export interface CoreSummary {
+  industry: string
+  headcount: string
+  revenue: string
+  years: string
+  representativeName: string
+  /** 화면에 채울 값이 하나라도 있는가 */
+  hasAny: boolean
+}
+
+/**
+ * Partner 가 미팅 전에 봐야 할 것은 이 넷뿐이다.
+ * 인증·특허·주소·신용등급·자산·부채 같은 값은 데이터에는 남기되 이 요약에 넣지 않는다(2차 제안·Master 분석용).
+ */
+export function coreSummary(company: Pick<Company, 'industry' | 'industryNote' | 'headcount' | 'representativeName'>, profile: CompanyProfile | null): CoreSummary {
+  const f = profile?.facts
+  const active = new Set(activeEvidence(profile).map((e) => e.key))
+  // 업종은 읽기 쉬운 이름만 — 산업분류 코드는 근거(추출정보)에 남기고 요약에는 넣지 않는다
+  const industryText = f?.subIndustry && active.has('industryText') ? f.subIndustry : company.industryNote || INDUSTRY_LABEL[company.industry]
+  const industry = industryText.replace(/\s*\([A-Z]?\d{2,6}\)\s*$/, '').trim()
+  const headcount = f?.headcount !== null && f?.headcount !== undefined && active.has('headcount') ? `${f.headcount.toLocaleString('ko-KR')}명` : company.headcount === 'unknown' ? '' : HEADCOUNT_LABEL[company.headcount]
+  const latest = [...(f?.financials ?? [])].reverse().find((x) => x.revenue !== null && active.has(`fin_revenue_${x.year}`))
+  const revenue = latest ? `${formatWonShort(latest.revenue)}원` : ''
+  const years = f?.yearsInBusiness !== null && f?.yearsInBusiness !== undefined && (active.has('yearsInBusiness') || active.has('foundedAt')) ? `${f.yearsInBusiness}년` : ''
+  return { industry, headcount, revenue, years, representativeName: f?.representativeName ?? company.representativeName ?? '', hasAny: Boolean(industry || headcount || revenue || years) }
+}
+
+/** 한 줄 배지용 — 업종 · 근로자 N · 매출 X · 업력 Y (기업인증은 넣지 않는다) */
+export function coreSummaryLine(company: Parameters<typeof coreSummary>[0], profile: CompanyProfile | null): string {
+  const c = coreSummary(company, profile)
+  return [c.industry, c.headcount && `근로자 ${c.headcount}`, c.revenue && `매출 ${c.revenue}`, c.years && `업력 ${c.years}`].filter(Boolean).join(' · ')
 }

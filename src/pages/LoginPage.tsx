@@ -41,7 +41,7 @@ export default function LoginPage() {
       <div className="w-full max-w-[460px]">
         <div className="mb-6 flex flex-col items-center text-center">
           <BrandLogo size="lg" />
-          <p className="t-body mt-3 text-ink-500">미팅 5분 전에 열고, 1차 미팅을 진행하고, 버튼 한 번으로 김상호 대표의 운영 OS 에 전달합니다.</p>
+          <p className="t-body mt-3 text-ink-500">미팅 5분 전에 열고, 1차 미팅을 진행하고, 버튼 한 번으로 김상호 대표의 운영 OS에 전달합니다.</p>
         </div>
 
         {status === 'config_error' && (

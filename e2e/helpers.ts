@@ -32,7 +32,7 @@ export async function prepareCompany(page: Page, name = 'ABC산업', opts: { pho
   }
   if (opts.shots) await page.screenshot({ path: `${SHOTS}/${opts.shots}-02c-prep-3.png`, fullPage: true })
   await page.getByTestId('company-save').click()
-  await expect(page.getByTestId('strategy-title')).toContainText(`${name}은 이렇게 접근하세요`)
+  await expect(page.getByTestId('strategy-title')).toContainText(name)
 }
 
 /** 브라우저 SpeechRecognition 을 흉내 낸다 — start() 하면 window.__voiceText 를 결과로 돌려준다 */

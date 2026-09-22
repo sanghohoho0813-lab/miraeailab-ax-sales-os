@@ -1,12 +1,22 @@
 /**
- * 유사사례 추천 V2 — 업종만으로 매칭하지 않는다. Vector DB·임베딩 없이 규칙 + 키워드 + 가중치로 371건을 고른다.
- * 가중치: 업종(3/1) · 현재 문제구조(2×일치 수) · B2B/B2C(1) · 업무구조·AX 전환방식(1) · 기업규모↔금액구간(2) · 자금유형(1) · 검증(1)
- *   + V2: 세부업종·제품 키워드(최대 2) · 성장추이→성장단계(1) · 인증(연구소·벤처)↔R&D·사업화 자금경로(1) · 고객접점 필요↔포털 전환(1)
- * 점수는 내부 정렬용이며 화면에는 % 나 점수 대신 자연어 이유 태그만 보여 준다.
- * 기본 추천 3개: ① 동일/가장 가까운 업종  ② 업종은 달라도 문제구조가 가장 비슷한 사례  ③ 전환경로(AX Path)가 가장 가까운 사례
- * reviewRequired(needs_review) 사례는 기본 추천에서 제외한다(마스터 검수 전).
+ * 유사사례 추천 V3 — FILTER → SCORE.
+ *
+ * 순서가 바뀌었다. 예전에는 371건 전체를 점수화한 뒤 위에서 잘랐기 때문에
+ * 광고회사에 화훼·외식 사례가 올라오는 일이 있었다. 이제는 먼저 Pool 을 업종으로 좁히고,
+ * 그 안에서만 세부업종·문제구조·전환방식을 점수화한다.
+ *
+ * Pool 우선순위
+ *   1. 같은 업종 (industry 일치) — 기본
+ *   2. 같은 업종이 하나도 없을 때만 인접업종 (아주 좁게 정의, 제조↔유통↔물류 정도)
+ *   3. 업종이 '기타' 이면 세부업종·제품 키워드가 실제로 겹치는 사례만
+ *
+ * 규칙
+ *   - 기본 추천은 최대 2개. 억지로 3개를 채우지 않는다. 0개면 "사례 없음" 이 정답이다.
+ *   - 인접업종·키워드로 고른 사례는 fallback 으로 분리해서 돌려주고, 화면에 그 사실을 표시한다.
+ *   - reviewRequired(검수 전) 사례는 기본 추천에서 제외한다.
+ *   - 점수는 내부 정렬용이며 화면에는 자연어 이유만 보여 준다.
  */
-import type { CaseStudy, Company, QuestionArea } from '../types/domain'
+import type { CaseStudy, Company, Industry, QuestionArea } from '../types/domain'
 
 /** PDF·음성 프로필에서 오는 추가 신호 (모두 선택) */
 export interface ProfileSignals {
@@ -18,7 +28,8 @@ export interface ProfileSignals {
   certifications?: string[]
 }
 
-const STOP = new Set(['제조업', '제조', '서비스업', '서비스', '주식회사', '기타', '부품', '및', '등', '업', '기업', '회사'])
+const STOP = new Set(['제조업', '제조', '서비스업', '서비스', '주식회사', '기타', '부품', '및', '등', '업', '기업', '회사', '전문', '일반', '관련', '사업', '기반'])
+
 export function tokens(...parts: (string | null | undefined)[]): string[] {
   const out = new Set<string>()
   for (const p of parts) {
@@ -31,15 +42,19 @@ export function tokens(...parts: (string | null | undefined)[]): string[] {
   return [...out]
 }
 
-const NEAR_INDUSTRY: Record<string, string[]> = {
-  manufacturing: ['distribution', 'logistics'],
+/**
+ * 인접업종 — 아주 좁게. 예전 service → medical/food 매핑은 광고회사에 병원·외식 사례를 붙였기 때문에 지웠다.
+ * 서비스·의료·외식·건설·환경은 인접업종 fallback 을 쓰지 않는다(업종 안에서 찾거나, 없으면 없다고 말한다).
+ */
+const NEAR_INDUSTRY: Record<Industry, Industry[]> = {
+  manufacturing: ['distribution'],
   distribution: ['logistics', 'manufacturing'],
-  logistics: ['distribution', 'environment'],
-  construction: ['environment', 'manufacturing'],
-  environment: ['logistics', 'construction'],
-  service: ['medical', 'food'],
-  medical: ['service'],
-  food: ['service', 'distribution'],
+  logistics: ['distribution'],
+  construction: [],
+  environment: [],
+  service: [],
+  medical: [],
+  food: [],
   other: [],
 }
 
@@ -51,6 +66,16 @@ export interface CaseMatch {
   reasons: string[]
   /** 다른 점 (화면 표시용) */
   differences: string[]
+  /** 이 사례가 어떤 이유로 뽑혔나 */
+  kind: MatchKind
+  kindLabel: string
+}
+
+export type MatchKind = 'sub_industry' | 'industry' | 'near'
+export const MATCH_KIND_LABEL: Record<MatchKind, string> = {
+  sub_industry: '같은 업종 · 세부분야도 비슷',
+  industry: '같은 업종',
+  near: '업무구조 참고 사례',
 }
 
 export interface MatchOptions {
@@ -59,13 +84,27 @@ export interface MatchOptions {
   areaLabel: (a: QuestionArea) => string
   /** 마스터 검수 화면 등에서 needs_review 사례까지 포함 */
   includeReviewRequired?: boolean
-  /** V2 — PDF·음성 프로필 신호 */
+  /** PDF·음성 프로필 신호 */
   profile?: ProfileSignals
-  /** V2 — 거래처 접점 화면이 필요한 구조(B2B + 견적·주문/거래처 관리 문제) */
+  /** 거래처 접점 화면이 필요한 구조(B2B + 견적·주문/거래처 관리 문제) */
   customerTouchpoint?: boolean
+  /** 기본 추천 개수 (기본 2) */
+  limit?: number
+}
+
+export interface CaseRecommendation {
+  /** 기본 추천 — 동종업계 안에서만, 최대 2개. 없으면 빈 배열 */
+  picks: CaseMatch[]
+  /** 동종업계 사례가 하나도 없을 때만 1개. 화면에 "동종업계 사례가 없어…" 를 반드시 표시한다 */
+  fallback: CaseMatch | null
+  /** 같은 Pool 안의 나머지 (사례 탐색 화면용) */
+  others: CaseMatch[]
+  /** 어떤 Pool 로 골랐는가 */
+  pool: 'industry' | 'near' | 'keyword' | 'none'
 }
 
 const SMALL_HEADCOUNT = new Set(['1-5', '6-10', '11-20'])
+
 function bandRank(c: CaseStudy): number | null {
   const v = c.fundingAmountDisclosed
   if (v === null || v === undefined) return null
@@ -73,17 +112,6 @@ function bandRank(c: CaseStudy): number | null {
   if (v < 1_000_000_000) return 1
   if (v < 2_000_000_000) return 2
   return 3
-}
-
-export type MatchKind = 'industry' | 'problem' | 'path'
-export const MATCH_KIND_LABEL: Record<MatchKind, string> = { industry: '업종이 가까운 사례', problem: '문제구조가 가까운 사례', path: '전환경로가 가까운 사례' }
-
-export interface CaseRecommendation {
-  primary: CaseMatch | null
-  secondary: CaseMatch | null
-  /** V2 — 전환경로(AX Path)가 가장 가까운 사례 */
-  tertiary: CaseMatch | null
-  others: CaseMatch[]
 }
 
 function overlap(a: QuestionArea[], b: QuestionArea[]): QuestionArea[] {
@@ -100,124 +128,157 @@ function growthOf(company: Company, growthAnswer: string | null, profile?: Profi
   return null
 }
 
-function desiredPath(company: Company, opts: MatchOptions): CaseStudy['axPath'][] {
-  const wantsPortal = opts.customerTouchpoint || company.interests.includes('customer') || company.interests.includes('sales')
-  const wantsInternal = company.interests.includes('efficiency')
-  if (wantsPortal && wantsInternal) return ['hybrid', 'customer_portal', 'internal_ax']
-  if (wantsPortal) return ['customer_portal', 'hybrid']
-  if (company.headcount === '1-5') return ['simple_automation', 'internal_ax']
-  return ['internal_ax', 'hybrid']
+/** 회사 쪽 세부업종 키워드 — 업종 메모·프로필 세부업종·제품 */
+export function companyKeywords(company: Company, profile?: ProfileSignals): string[] {
+  return tokens(company.industryNote, profile?.subIndustry, ...(profile?.keywords ?? []))
 }
 
+/** 사례 쪽 세부업종 키워드 */
+export function caseKeywords(c: CaseStudy): string[] {
+  return tokens(c.subIndustry, c.oneLiner, c.researchSection, ...(c.keywords ?? []))
+}
+
+/** 세부업종 겹침 — 두 글자 이상 토큰이 서로 포함관계면 일치로 본다 */
+export function keywordHits(mine: string[], theirs: string[]): string[] {
+  return mine.filter((t) => theirs.some((u) => u === t || u.includes(t) || t.includes(u)))
+}
+
+/** 추천에 올릴 수 있는 사례인가 (검수·전환 서술) */
+function eligible(c: CaseStudy, opts: MatchOptions): boolean {
+  if (c.verificationStatus === 'draft') return false
+  if (!opts.includeReviewRequired && (c.reviewRequired || c.verificationStatus !== 'verified')) return false
+  // AX 전환 서술이 없는 자금·선정 레퍼런스는 "실제 사례" 로 보여 줄 내용이 없다
+  const thin = !c.axTransition && !c.internalAx && !c.aiFunction && !c.customerPortal
+  if (thin && !opts.fundingInterest) return false
+  return true
+}
+
+/** Pool 안에서의 점수 — 업종은 이미 필터로 걸렀으므로 세부업종·문제구조·전환방식만 본다 */
 export function scoreCase(c: CaseStudy, company: Company, painAreas: QuestionArea[], opts: MatchOptions): CaseMatch {
   let score = 0
   const reasons: string[] = []
   const differences: string[] = []
-  // 1) 업종
-  if (c.industry === company.industry) {
+  const sameIndustry = c.industry === company.industry
+
+  // 1) 세부업종·제품 키워드 (Pool 안에서 가장 큰 가중치)
+  const mine = companyKeywords(company, opts.profile)
+  const hits = keywordHits(mine, caseKeywords(c))
+  if (hits.length) {
+    score += Math.min(6, hits.length * 3)
+    reasons.push(`세부분야 비슷 (${hits.slice(0, 2).join('·')})`)
+  }
+
+  // 2) 같은 업종
+  if (sameIndustry) {
     score += 3
     reasons.push('같은 업종')
-  } else if (NEAR_INDUSTRY[company.industry]?.includes(c.industry)) {
-    score += 1
-    reasons.push('가까운 업종')
   } else {
-    differences.push('업종이 다름 — 문제 구조로만 비교')
+    differences.push('업종이 다릅니다 — 업무구조만 참고하세요')
   }
-  // 2) 문제 구조
+
+  // 3) 문제 구조
   const ov = overlap(painAreas, c.problemAreas)
   score += ov.length * 2
-  if (ov.length) reasons.push(`문제 구조 일치: ${ov.map(opts.areaLabel).join('·')}`)
-  // 3) B2B / B2C
+  if (ov.length) reasons.push(`같은 문제 구조 (${ov.map(opts.areaLabel).join('·')})`)
+
+  // 4) 거래형태
   if (company.tradeType !== 'unknown') {
     if (c.businessModel === company.tradeType || c.businessModel === 'both' || company.tradeType === 'both') {
       score += 1
-      reasons.push('거래형태 유사')
+      reasons.push('거래형태 비슷')
     } else {
-      differences.push(c.businessModel === 'b2c' ? '소비자 대상(B2C) 사례' : '기업 대상(B2B) 사례')
+      differences.push(c.businessModel === 'b2c' ? '소비자 대상(B2C) 사례입니다' : '기업 대상(B2B) 사례입니다')
     }
   }
-  // 4) 업무구조·AX 전환방식 — 관심사와 전환경로
-  const wantsPortal = company.interests.includes('customer') || company.interests.includes('sales')
+
+  // 5) 전환 방식 — 관심사·접점 필요
+  const wantsPortal = opts.customerTouchpoint || company.interests.includes('customer') || company.interests.includes('sales')
   const wantsInternal = company.interests.includes('efficiency')
-  if ((wantsPortal && (c.axPath === 'customer_portal' || c.axPath === 'hybrid')) || (wantsInternal && (c.axPath === 'internal_ax' || c.axPath === 'hybrid'))) {
+  if (wantsPortal && (c.axPath === 'customer_portal' || c.axPath === 'hybrid')) {
     score += 1
-    reasons.push(wantsPortal && (c.axPath === 'customer_portal' || c.axPath === 'hybrid') ? '고객 접점 전환 방식' : '내부 업무 전환 방식')
+    reasons.push('고객 접점을 바꾼 방식')
+  } else if (wantsInternal && (c.axPath === 'internal_ax' || c.axPath === 'hybrid')) {
+    score += 1
+    reasons.push('내부 업무를 바꾼 방식')
   }
-  // 5) 기업규모 ↔ 금액 구간 — 소규모 고객에게는 10억 미만 사례를 우선
+
+  // 6) 기업규모 ↔ 금액 구간 — 소규모 고객에게는 10억 미만 사례를 우선
   const rank = bandRank(c)
   if (SMALL_HEADCOUNT.has(company.headcount)) {
     if (rank === 0 || rank === 1) {
       score += 2
       reasons.push('10억 미만 현실적 규모')
     } else if (rank !== null && rank >= 3) {
-      differences.push('20억 이상 큰 조달 — 방향만 참고')
+      differences.push('20억 이상 큰 조달 — 방향만 참고하세요')
     }
   }
-  // 6) 성장단계 — 미팅 답변 > PDF 매출추이·업력 > 인원
+
+  // 7) 성장단계
   const g = growthOf(company, opts.growthAnswer ?? null, opts.profile)
   if (g && c.growthStage === g) {
     score += 1
-    reasons.push(opts.profile?.revenueTrend === 'up' && !opts.growthAnswer ? '성장 추이 유사 (매출 증가)' : '성장단계 유사')
+    reasons.push(opts.profile?.revenueTrend === 'up' && !opts.growthAnswer ? '성장 추이 비슷' : '성장단계 비슷')
   }
-  // V2-a) 세부업종·제품 키워드
-  if (opts.profile) {
-    const mine = tokens(opts.profile.subIndustry, ...(opts.profile.keywords ?? []))
-    const theirs = tokens(c.subIndustry, c.oneLiner, ...(c.keywords ?? []))
-    const hits = mine.filter((t) => theirs.some((u) => u.includes(t) || t.includes(u)))
-    if (hits.length) {
-      score += Math.min(2, hits.length)
-      reasons.push(`세부업종·제품 유사: ${hits.slice(0, 2).join('·')}`)
-    }
-    // V2-b) 인증(연구소·벤처) ↔ R&D·사업화 자금 경로
-    const techCert = (opts.profile.certifications ?? []).some((x) => /연구소|전담부서|벤처|이노비즈/.test(x))
-    if (techCert && (c.fundingType === 'gov_rnd' || c.fundingType === 'commercialization' || c.fundingType === 'mixed')) {
-      score += 1
-      reasons.push('기술 인증 기업의 R&D·사업화 경로')
-    }
-  }
-  // V2-c) 고객 접점 필요 ↔ 포털 전환
-  if (opts.customerTouchpoint && (c.axPath === 'customer_portal' || c.axPath === 'hybrid')) {
-    score += 1
-    if (!reasons.includes('고객 접점 전환 방식')) reasons.push('거래처 접점 화면이 필요한 구조')
-  }
-  // 7) 자금유형 — 자금 관심이 있을 때만 정책·보증·R&D 사례에 가산
+
+  // 8) 자금 관심이 있을 때만 정책·보증·R&D 경로 가산
   const policyLike = c.fundingType === 'guarantee' || c.fundingType === 'policy_loan' || c.fundingType === 'gov_rnd' || c.fundingType === 'mixed' || c.fundingType === 'commercialization'
   if (opts.fundingInterest && policyLike) {
     score += 1
     reasons.push('정책·보증 자금 경로')
   } else if (c.fundingType === 'private_investment') {
-    differences.push('민간투자 사례 — 정책자금과 경로가 다름')
+    differences.push('민간투자 사례 — 정책자금과 경로가 다릅니다')
   }
-  // 8) 검증 상태
-  if (c.verificationStatus === 'verified') score += 1
-  // AX 전환 서술이 없는 자금·선정 레퍼런스는 자금 관심이 있을 때만 남긴다
-  const thin = !c.axTransition && !c.internalAx && !c.aiFunction && !c.customerPortal
-  if (thin) {
-    score -= opts.fundingInterest ? 0 : 4
-    if (opts.fundingInterest) reasons.push('자금유형 참고')
-  }
-  return { caseStudy: c, score, whySimilar: reasons.join(' · ') || '참고 사례', reasons, differences }
+
+  const kind: MatchKind = hits.length && sameIndustry ? 'sub_industry' : sameIndustry ? 'industry' : 'near'
+  return { caseStudy: c, score, whySimilar: reasons.join(' · ') || '참고 사례', reasons, differences, kind, kindLabel: MATCH_KIND_LABEL[kind] }
 }
 
+/**
+ * FILTER → SCORE.
+ * 동종업계 사례가 있으면 타업종 사례는 기본 추천에 절대 올라오지 않는다.
+ */
 export function recommendCases(cases: CaseStudy[], company: Company, painAreas: QuestionArea[], opts: MatchOptions): CaseRecommendation {
-  const scored = cases
-    .filter((c) => c.verificationStatus !== 'draft')
-    .filter((c) => opts.includeReviewRequired || (!c.reviewRequired && c.verificationStatus === 'verified'))
+  const limit = opts.limit ?? 2
+  const usable = cases.filter((c) => eligible(c, opts))
+
+  // 1) 같은 업종 Pool
+  let pool: CaseStudy[] = company.industry === 'other' ? [] : usable.filter((c) => c.industry === company.industry)
+  let poolKind: CaseRecommendation['pool'] = pool.length ? 'industry' : 'none'
+
+  // 2) 같은 업종이 없을 때만 — 인접업종(아주 좁음) 또는 키워드가 실제로 겹치는 사례
+  if (!pool.length) {
+    const near = NEAR_INDUSTRY[company.industry] ?? []
+    const nearPool = near.length ? usable.filter((c) => near.includes(c.industry)) : []
+    if (nearPool.length) {
+      pool = nearPool
+      poolKind = 'near'
+    } else {
+      const mine = companyKeywords(company, opts.profile)
+      const keywordPool = mine.length ? usable.filter((c) => keywordHits(mine, caseKeywords(c)).length > 0) : []
+      pool = keywordPool
+      poolKind = keywordPool.length ? 'keyword' : 'none'
+    }
+  }
+
+  const scored = pool
     .map((c) => scoreCase(c, company, painAreas, opts))
-    .sort((a, b) => b.score - a.score)
-  const sameIndustry = scored.filter((m) => m.caseStudy.industry === company.industry || NEAR_INDUSTRY[company.industry]?.includes(m.caseStudy.industry))
-  const primary = sameIndustry[0] ?? scored[0] ?? null
-  const secondary =
-    scored.find((m) => m !== primary && m.caseStudy.industry !== company.industry && overlap(painAreas, m.caseStudy.problemAreas).length > 0) ??
-    scored.find((m) => m !== primary) ??
-    null
-  const paths = desiredPath(company, opts)
-  const tertiary =
-    scored.find((m) => m !== primary && m !== secondary && paths.includes(m.caseStudy.axPath) && m.reasons.length >= 2) ??
-    scored.find((m) => m !== primary && m !== secondary && paths.includes(m.caseStudy.axPath)) ??
-    scored.find((m) => m !== primary && m !== secondary) ??
-    null
-  if (tertiary && !tertiary.reasons.some((r) => /전환 방식|접점/.test(r))) tertiary.reasons.push(tertiary.caseStudy.axPath === 'customer_portal' || tertiary.caseStudy.axPath === 'hybrid' ? '고객 접점 전환 방식' : tertiary.caseStudy.axPath === 'simple_automation' ? '작게 시작한 자동화 방식' : '내부 업무 전환 방식')
-  const others = scored.filter((m) => m !== primary && m !== secondary && m !== tertiary)
-  return { primary, secondary, tertiary, others }
+    .sort((a, b) => b.score - a.score || a.caseStudy.companyName.localeCompare(b.caseStudy.companyName, 'ko'))
+
+  if (poolKind === 'industry') {
+    // 같은 업종 안에서도 아무 신호가 없는(점수가 낮은) 사례는 올리지 않는다
+    const strong = scored.filter((m) => m.score >= 4)
+    const picks = (strong.length ? strong : scored).slice(0, limit)
+    return { picks, fallback: null, others: scored.filter((m) => !picks.includes(m)), pool: 'industry' }
+  }
+
+  // 동종업계가 없을 때 — 최대 1개만, 그리고 화면에서 "동종업계 사례 없음" 을 반드시 말한다
+  const fb = scored[0] ?? null
+  if (fb) fb.kind = 'near'
+  if (fb) fb.kindLabel = MATCH_KIND_LABEL.near
+  return { picks: [], fallback: fb, others: scored.slice(1), pool: fb ? poolKind : 'none' }
+}
+
+/** 화면에 뿌릴 사례 목록 (기본 추천 + fallback). 억지로 채우지 않는다 */
+export function shownCases(rec: CaseRecommendation): CaseMatch[] {
+  return rec.picks.length ? rec.picks : rec.fallback ? [rec.fallback] : []
 }

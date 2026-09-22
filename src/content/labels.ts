@@ -147,7 +147,7 @@ export const DIAGNOSIS_QUESTION_LABEL: Record<string, string> = {
   priorityByMemory: '우선순위가 담당자 기억에 의존',
   dataUnused: '데이터는 있지만 의사결정에 못 씀',
   ceoLoadGrows: '규모가 커질수록 대표 확인업무 증가',
-  uniqueWork: '기성 ERP/POS/SaaS 로 안 되는 고유 업무',
+  uniqueWork: '기성 ERP/POS/SaaS로 안 되는 고유 업무',
   internalOwner: '함께 쓸 내부 담당자',
 }
 export const DIAGNOSIS_DEGREE_LABEL: Record<string, string> = {

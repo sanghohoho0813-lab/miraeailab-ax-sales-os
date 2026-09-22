@@ -30,7 +30,7 @@ const BUCKET_LABEL: Record<Bucket, { title: string; sub: string }> = {
   upcoming: { title: '예정된 미팅', sub: '날짜순' },
   active: { title: '진행 중 · 분석 완료', sub: '마무리하거나 2차 제안 요청을 보냅니다' },
   undated: { title: '날짜 미정', sub: '미팅 일시를 넣으면 오늘·예정으로 올라옵니다' },
-  done: { title: '전달 완료', sub: '김상호 대표의 운영 OS 에 전달된 건' },
+  done: { title: '전달 완료', sub: '김상호 대표의 운영 OS에 전달된 건' },
 }
 
 function statusOf(r: Row): { label: string; tone: 'neutral' | 'accent' | 'ok' | 'info' | 'warn' } {

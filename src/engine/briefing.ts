@@ -40,9 +40,10 @@ const CHAIN: Record<Industry, { area: QuestionArea; title: string }[]> = {
     { area: 'repetitive_work', title: '추가작업 청구 누락' },
     { area: 'ceo_dependency', title: '발주처 보고 부담' },
   ],
+  // 서비스업은 범위가 넓다 — 광고대행사부터 학원·생활서비스까지 통하는 말로 쓴다
   service: [
-    { area: 'customer_mgmt', title: '예약·문의 기억 관리' },
-    { area: 'repurchase', title: '재방문 누수' },
+    { area: 'customer_mgmt', title: '고객·문의 관리' },
+    { area: 'repurchase', title: '재계약·재구매 누수' },
     { area: 'ceo_dependency', title: '대표 확인 부담' },
   ],
   food: [
@@ -81,7 +82,7 @@ const DETAIL: Record<Industry, string> = {
     '건설·시공은 현장 자료가 사진·카톡에 흩어져 추가작업이 청구로 이어지지 않는 경우가 많습니다. "구두로 한 추가작업을 정산 때 인정받지 못한 적이 있는지" 와 "발주처가 진행상황을 물으면 어떻게 답하는지" 를 확인하세요.',
   service:
     '서비스업은 예약·문의·후속연락이 직원 기억에 있을 때 매출이 샙니다. "취소된 예약 자리를 어떻게 채우는지", "상담만 하고 등록 안 한 고객에게 다시 연락하는지" 로 시작하세요. 기능 얘기보다 놓친 고객 얘기가 먼저입니다.',
-  food: '외식은 POS 가 "얼마 팔았는지" 는 알려주지만 "무엇이 남는지" 는 알려주지 않습니다. 준비량을 어떻게 정하는지, 단체문의가 어디로 들어오는지 두 가지를 확인하세요. 회원·재주문 전환은 그다음 포인트입니다.',
+  food: '외식은 POS가 "얼마 팔았는지" 는 알려주지만 "무엇이 남는지" 는 알려주지 않습니다. 준비량을 어떻게 정하는지, 단체문의가 어디로 들어오는지 두 가지를 확인하세요. 회원·재주문 전환은 그다음 포인트입니다.',
   logistics:
     '물류는 주문·배차·재고·정산이 끊긴 자리에서 확인 전화가 반복됩니다. "하루에 확인 전화가 몇 번쯤 오가는지" 강도만 확인해도 처리량과 대표시간 가치가 보입니다.',
   medical:
@@ -118,21 +119,21 @@ export function buildBriefing(company: Company, opts: BriefingOptions = {}): Bri
     cautions.push(`대표 관심사가 ${company.interests.filter((i) => i === 'policy_fund' || i === 'gov_support').map((i) => INTEREST_LABEL[i]).join('·')} 입니다. 자금은 결과라는 순서를 지키고, 물으면 "범위가 정해지면 정확히" 로 답하세요.`)
   }
   if (company.headcount === '1-5') cautions.push('소규모 업체입니다. 작게 시작하는 자동화(LEVEL A) 가능성을 열어 두세요.')
-  if (company.diagnosis?.grade === 'NO_GO') cautions.push('사전진단 결과가 "지금은 정비 먼저" 입니다. AX 를 권하기보다 현재 도구 정리부터 이야기하세요.')
+  if (company.diagnosis?.grade === 'NO_GO') cautions.push('사전진단 결과가 "지금은 정비 먼저" 입니다. AX를 권하기보다 현재 도구 정리부터 이야기하세요.')
   const pf = opts.profile?.facts
   if (pf?.creditNote || (pf?.financials.length ?? 0) > 0) cautions.push('기업자료의 매출·신용 숫자를 먼저 꺼내지 마세요. 대표가 말하기 전에는 "자료에서 봤다" 고 하지 않습니다.')
   if (pf?.growth.revenueTrend === 'up') cautions.push('매출이 늘고 있다고 "업무가 엉망일 것" 이라고 단정하지 마세요. 관리 부담이 늘었는지 질문으로 확인합니다.')
 
   let detail = DETAIL[company.industry]
   if (highlights.length) {
-    detail = `대표님이 사전진단에서 ${highlights.map((h) => `"${h.label}"`).join(', ')} 을(를) 강하게 체크했습니다. 같은 질문을 다시 하지 말고 "사전진단에서 이렇게 체크하셨는데, 실제로 어떤 장면에서 그런가요?" 로 여세요. ` + detail
+    detail = `대표님이 사전진단에서 ${highlights.map((h) => `"${h.label}"`).join(', ')} 항목을 강하게 체크했습니다. 같은 질문을 다시 하지 말고 "사전진단에서 이렇게 체크하셨는데, 실제로 어떤 장면에서 그런가요?" 라고 여세요. ` + detail
   }
   if (profileLines.length) detail = `기업자료로 확인된 사실: ${profileLines.join(' · ')}. ` + detail
 
   return {
     chain,
     chainAreas,
-    goal: 'AX 를 판매하려 하지 말고, 2차 제안에 필요한 핵심문제 1~2개만 찾으세요.',
+    goal: 'AX를 판매하려 하지 말고, 2차 제안에 필요한 핵심문제 1~2개만 찾으세요.',
     cautions,
     detail,
     diagnosisLines,

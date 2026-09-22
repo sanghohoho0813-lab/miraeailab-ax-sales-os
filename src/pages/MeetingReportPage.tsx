@@ -1,6 +1,6 @@
 /**
  * PDF — 브랜드 리포트 "1차 AX 미팅 리포트". 큰 글씨, 질문 전부 나열하지 않음(핵심 체크 결과만).
- * 보관·출력·내부공유용. 브라우저 인쇄(PDF 로 저장)로 만든다 — 별도 라이브러리 없음.
+ * 보관·출력·내부공유용. 브라우저 인쇄(PDF로 저장)로 만든다 — 별도 라이브러리 없음.
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -52,7 +52,7 @@ export default function MeetingReportPage() {
           ← 미팅 분석
         </Link>
         <Button variant="primary" onClick={() => window.print()} data-testid="print">
-          PDF 로 저장 / 인쇄
+          PDF로 저장 / 인쇄
         </Button>
       </div>
       <article className="print-document mx-auto max-w-[860px] bg-white px-7 py-9 text-[16px] leading-relaxed text-ink-900 sm:px-12" data-testid="report">
@@ -183,7 +183,7 @@ export default function MeetingReportPage() {
 
             <h2 className="mt-8 text-[13px] font-black tracking-[0.15em] text-accent-700">07 · 2차 제안 상태</h2>
             <p className="mt-2 text-[17px] font-bold">{handoff ? `${HANDOFF_STATUS_LABEL[handoff.status]} · 전달 ${formatDate(handoff.submittedAt, true)}` : '아직 요청하지 않음'}</p>
-            <p className="text-[13px] text-ink-500">{handoff ? '김상호 대표의 운영 OS 에서 검토합니다.' : '미팅 분석 화면의 [김상호 대표에게 2차 제안 요청] 으로 보냅니다.'}</p>
+            <p className="text-[13px] text-ink-500">{handoff ? '김상호 대표의 운영 OS에서 검토합니다.' : '미팅 분석 화면의 [김상호 대표에게 2차 제안 요청] 으로 보냅니다.'}</p>
           </>
         )}
         <footer className="mt-10 flex items-center justify-between border-t border-line pt-3 text-[11px] text-ink-300">

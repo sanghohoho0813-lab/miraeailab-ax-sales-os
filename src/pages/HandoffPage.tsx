@@ -47,7 +47,7 @@ export default function HandoffPage() {
       const next = await repo.withdrawHandoff(user, h.id, reason.trim())
       setH(next)
       setWithdrawOpen(false)
-      toast.show('2차 제안 요청을 철회했습니다. 운영 OS 에서도 보류로 표시됩니다.', 'ok')
+      toast.show('2차 제안 요청을 철회했습니다. 운영 OS에서도 보류로 표시됩니다.', 'ok')
     } catch (cause) {
       toast.show(cause instanceof Error ? cause.message : '철회하지 못했습니다.', 'danger')
     } finally {
@@ -80,7 +80,7 @@ export default function HandoffPage() {
         </div>
         {withdrawn ? (
           <p className="mt-3 inline-flex items-center gap-2 text-[1.2rem] font-black text-warn-700" data-testid="handoff-withdrawn">
-            <Undo2 aria-hidden="true" className="size-7" /> 철회된 요청입니다. 운영 OS 에서도 보류로 표시됩니다.
+            <Undo2 aria-hidden="true" className="size-7" /> 철회된 요청입니다. 운영 OS에서도 보류로 표시됩니다.
           </p>
         ) : (
           <p className="mt-3 inline-flex items-center gap-2 text-[1.2rem] font-black text-ok-700">

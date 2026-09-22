@@ -112,7 +112,7 @@ export default function DashboardPage() {
             )}
           </FlatSection>
 
-          <FlatSection title="2차 제안 요청 대기" sub="김상호 대표의 운영 OS 에서 검토 중인 건">
+          <FlatSection title="2차 제안 요청 대기" sub="김상호 대표의 운영 OS에서 검토 중인 건">
             {waiting.length === 0 ? (
               <p className="rounded-(--radius-card) border border-dashed border-line-strong bg-white px-5 py-6 t-body text-ink-500">대기 중인 요청이 없습니다.</p>
             ) : (

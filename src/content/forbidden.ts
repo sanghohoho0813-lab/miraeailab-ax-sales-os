@@ -30,7 +30,7 @@ export const FORBIDDEN: ForbiddenExpression[] = [
     id: 'ax_gets_fund',
     phrase: 'AX 하면 정책자금 받을 수 있습니다.',
     patterns: [/AX\S*\s*(하|만들|구축)\S*\s*(정책)?자금\s*(받|나오|가능)/, /(자금|지원금)\S*\s*(받을 수 있|나옵니다|나와요|보장)/],
-    why: '자금은 기관 심사 결과다. AX 는 실제 변화와 증거(Before/After)를 만드는 본체이고, 자금은 그 결과로 따라오는 설명력이다. 인과를 뒤집으면 허위 안내가 된다.',
+    why: '자금은 기관 심사 결과다. AX는 실제 변화와 증거(Before/After)를 만드는 본체이고, 자금은 그 결과로 따라오는 설명력이다. 인과를 뒤집으면 허위 안내가 된다.',
     alternative: '현장 문제를 시스템으로 바꾸고 실제로 쓰면서 데이터가 쌓이면, 그 변화가 정책금융·R&D·투자를 설명하는 근거가 됩니다.',
   },
   {
@@ -56,10 +56,10 @@ export const FORBIDDEN: ForbiddenExpression[] = [
   },
   {
     id: 'replace_erp',
-    phrase: 'ERP 를 저희 걸로 바꾸시면 됩니다.',
+    phrase: 'ERP를 저희 걸로 바꾸시면 됩니다.',
     patterns: [/ERP\S*\s*(바꾸|교체|걷어)/],
-    why: '기존 시스템을 바꾸자는 제안은 저항만 만든다. AX 는 ERP 밖에서 사람이 반복하는 일을 찾는 것이다.',
-    alternative: 'ERP 를 바꾸려는 게 아니라, ERP 밖에서 아직 사람이 반복하고 있는 일을 찾는 겁니다.',
+    why: '기존 시스템을 바꾸자는 제안은 저항만 만든다. AX는 ERP 밖에서 사람이 반복하는 일을 찾는 것이다.',
+    alternative: 'ERP를 바꾸려는 게 아니라, ERP 밖에서 아직 사람이 반복하고 있는 일을 찾는 겁니다.',
   },
 ]
 

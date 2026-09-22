@@ -5,6 +5,7 @@ import { useSession } from '../lib/auth'
 import type { Company, Meeting } from '../types/domain'
 import { Button, EmptyState, PageTitle, Badge, SkeletonList, TextInput, useToast } from '../components/ui'
 import { INDUSTRY_LABEL, HEADCOUNT_LABEL, MEETING_STATUS_LABEL } from '../content/labels'
+import { josa } from '../content/korean'
 import { formatDate } from '../lib/util'
 
 export default function CompaniesPage() {
@@ -37,7 +38,7 @@ export default function CompaniesPage() {
   async function archive(c: Company) {
     await repo.archiveCompany(user, c.id)
     setCompanies((cur) => (cur ?? []).filter((x) => x.id !== c.id))
-    toast.show(`${c.name}을(를) 휴지통으로 이동했습니다.`, 'ok', {
+    toast.show(`${c.name}${josa(c.name, '을/를')} 휴지통으로 이동했습니다.`, 'ok', {
       label: '되돌리기',
       onClick: async () => {
         await repo.restoreCompany(user, c.id)

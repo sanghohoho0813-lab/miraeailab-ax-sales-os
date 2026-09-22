@@ -1,5 +1,5 @@
 /**
- * 저장소 인터페이스 — UI 는 이것만 쓴다. local(localStorage) / supabase 두 구현이 있다.
+ * 저장소 인터페이스 — UI는 이것만 쓴다. local(localStorage) / supabase 두 구현이 있다.
  * 모든 메서드는 "현재 로그인한 사용자" 기준으로 동작한다(권한은 supabase 에서는 RLS·RPC 가 강제).
  */
 import type {
@@ -46,7 +46,7 @@ export interface Repository {
   /** 마스터 전용 — 담당 재배정 (작성자는 유지) */
   assignCompany(user: CurrentUser, companyId: string, profileId: string | null): Promise<Company>
 
-  /* 회사 프로필 — PDF·음성·수동 입력에서 구조화한 스냅샷 (이력). 원본 PDF 는 저장하지 않는다 */
+  /* 회사 프로필 — PDF·음성·수동 입력에서 구조화한 스냅샷 (이력). 원본 PDF는 저장하지 않는다 */
   listProfiles(user: CurrentUser, companyId: string): Promise<CompanyProfile[]>
   createProfile(user: CurrentUser, input: CreateProfileInput): Promise<CompanyProfile>
   /** 잘못 추출된 값 제외/수정 — 행을 지우지 않고 facts·evidence 만 고친다 */

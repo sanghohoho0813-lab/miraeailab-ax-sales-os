@@ -79,7 +79,7 @@ export default function SettingsPage() {
             <Badge tone={user?.role === 'master' ? 'dark' : 'accent'}>{user?.role === 'master' ? '마스터 (미래AI랩)' : '파트너 (컨설턴트)'}</Badge>
           </dd>
           <dt className="font-bold text-ink-500">데이터</dt>
-          <dd>{mode === 'local' ? '브라우저 데모 (localStorage)' : '미래AI랩 공용 Supabase (홈페이지·운영 OS 와 같은 프로젝트)'}</dd>
+          <dd>{mode === 'local' ? '브라우저 데모 (localStorage)' : '미래AI랩 공용 Supabase (홈페이지·운영 OS와 같은 프로젝트)'}</dd>
         </dl>
         <p className="t-sub mt-3 text-ink-500">
           파트너에게는 본인이 등록하거나 담당하는 업체·미팅·사례·플레이북만 보입니다. 운영 OS 전체 정보와 내부 가격 전략은 노출되지 않습니다.

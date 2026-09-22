@@ -231,7 +231,7 @@ export default function CompanyNewPage() {
           next()
         }
       }}
-      className="mx-auto max-w-[760px] pb-28 sm:pb-0"
+      className="mx-auto max-w-[760px] pb-6 sm:pb-0"
     >
       <div className="mb-6">
         <div className="flex items-center justify-between gap-3">
@@ -455,7 +455,7 @@ export default function CompanyNewPage() {
       <VoiceIntakeSheet open={voiceOpen} onClose={() => setVoiceOpen(false)} onApply={applyVoice} onUsed={() => void repo.track(user, 'voice_intake_used', null, { from: 'quick' })} />
 
       {/* 하단 고정 CTA — 한 손으로 */}
-      <div className="fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+      <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 mt-6 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
         <div className="mx-auto flex max-w-[760px] items-center justify-between gap-3 sm:border-t sm:border-line sm:pt-5">
           <Button size="md" onClick={back} disabled={step === 0 || busy} data-testid="prep-back">
             <ArrowLeft aria-hidden="true" className="size-4" /> 이전

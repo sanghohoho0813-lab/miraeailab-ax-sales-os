@@ -7,7 +7,7 @@ import { OBJECTIONS, type Objection } from './objections'
 
 export interface CoachTip {
   id: string
-  /** 상황 (예: "ERP 가 있다고 할 때") */
+  /** 상황 (예: "ERP가 있다고 할 때") */
   situation: string
   answer: string
   next: string
@@ -37,7 +37,7 @@ const CONTEXT_TIPS: CoachTip[] = [
   {
     id: 'scatter_high',
     situation: '"여기저기 흩어져 있다"고 할 때',
-    answer: '먼저 한 곳에 모이는 구조가 필요하고, AI 는 그다음에 붙는 판단 기능입니다.',
+    answer: '먼저 한 곳에 모이는 구조가 필요하고, AI는 그다음에 붙는 판단 기능입니다.',
     next: '지금 어떤 건이 어디까지 됐는지 보려면 몇 군데를 봐야 하나요?',
   },
   {
@@ -61,7 +61,7 @@ const ALWAYS: [string, string][] = [
   ['too_small', '"우리는 직원이 몇 명 안 돼요" 라고 할 때'],
   ['no_time', '"지금 바빠서 시간이 없어요" 라고 할 때'],
   ['tried_before', '"예전에 만들었다가 안 썼어요" 라고 할 때'],
-  ['need_ai', '"AI 가 꼭 필요한가요?" 라고 할 때'],
+  ['need_ai', '"AI가 꼭 필요한가요?" 라고 할 때'],
 ]
 
 function degreeHigh(a?: Answer): boolean {
@@ -76,7 +76,7 @@ export function coachFor(answers: Record<string, Answer>, currentQuestionId: str
   }
   const sys = answers.current_system?.value
   if (currentQuestionId === 'current_system' || sys === 'partial' || sys === 'covered' || sys === 'custom') {
-    push(fromObjection('has_erp', 'ERP 가 있다고 할 때', sys ? '현재 시스템 답변' : '지금 질문'))
+    push(fromObjection('has_erp', 'ERP가 있다고 할 때', sys ? '현재 시스템 답변' : '지금 질문'))
   }
   if (currentQuestionId === 'ceo_dependency' || degreeHigh(answers.ceo_dependency)) push({ ...CONTEXT_TIPS[0], because: degreeHigh(answers.ceo_dependency) ? '대표 의존도 높음' : '지금 질문' })
   if (currentQuestionId === 'repetitive_work' || degreeHigh(answers.repetitive_work)) push({ ...CONTEXT_TIPS[1], because: degreeHigh(answers.repetitive_work) ? '반복 입력 많음' : '지금 질문' })

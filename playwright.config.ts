@@ -30,9 +30,15 @@ export default defineConfig({
     // 지능형 등록(PDF·음성·시각·권한)은 데스크톱과 폰(390px) 양쪽에서
     { name: 'intake', testMatch: /intake\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     { name: 'intake-mobile', testMatch: /intake\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    // 화면 이동 스크롤 — 데스크톱과 폰 양쪽에서
+    { name: 'shots', testMatch: /shots\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'shots-mobile', testMatch: /shots\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'copy', testMatch: /copy\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'scroll', testMatch: /scroll\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'scroll-mobile', testMatch: /scroll\.spec\.ts/, use: { ...devices['Pixel 7'] } },
     // 모바일·태블릿은 Chromium 기반 기기 설명자를 쓴다 (WebKit 은 이 환경에 없다)
-    { name: 'mobile', testIgnore: /(screens|hardening|intake)\.spec\.ts/, use: { ...devices['Pixel 7'] } },
-    { name: 'tablet', testIgnore: /(screens|hardening|intake)\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
-    { name: 'desktop', testIgnore: /(screens|hardening|intake)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'mobile', testIgnore: /(screens|hardening|intake|scroll|copy|shots)\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'tablet', testIgnore: /(screens|hardening|intake|scroll|copy|shots)\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
+    { name: 'desktop', testIgnore: /(screens|hardening|intake|scroll|copy|shots)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
   ],
 })

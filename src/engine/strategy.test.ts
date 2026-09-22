@@ -45,23 +45,29 @@ describe('Strategy Autopilot', () => {
     expect(hyps.every((h) => h.status === 'assumed')).toBe(true)
     expect(hyps.length).toBeLessThanOrEqual(4)
   })
-  it('10가지 결과가 한 번에 — 접근법·TOP3·질문 5~8·방향·범위 가설·사례 2~3·이유·멘트·금지·추가정보 ≤3', () => {
+  it('한 번에 만들어진다 — 접근법 2문장·TOP3·질문 5~7·방향·범위 가설·동종업계 사례 ≤2·이유·멘트·금지·추가정보 ≤3', () => {
     const s = buildStrategy({ company: company(), profile: profile(), cases: CASE_SEED, now: T })
     expect(s.approach.length).toBeGreaterThan(30)
+    // 접근법은 2~3문장, 150자 안팎 — 근거 숫자는 [왜 이렇게 판단했나요?] 안으로 보낸다
+    expect(s.approach.length).toBeLessThanOrEqual(170)
+    expect(s.approach.split('. ').length).toBeLessThanOrEqual(3)
+    expect(s.approach).not.toMatch(/이\(가\)|을\(를\)|은\(는\)/)
     expect(s.focus).toHaveLength(3)
     expect(s.questions.length).toBeGreaterThanOrEqual(5)
-    expect(s.questions.length).toBeLessThanOrEqual(8)
+    expect(s.questions.length).toBeLessThanOrEqual(7)
     expect(s.axDirection).toBeTruthy()
     expect(['A', 'B', 'C', 'D']).toContain(s.scope.level)
     expect(s.scope.status).toBe('assumed')
-    expect(s.cases.length).toBeGreaterThanOrEqual(2)
-    expect(s.cases.length).toBeLessThanOrEqual(3)
+    expect(s.cases.length).toBeGreaterThan(0)
+    expect(s.cases.length).toBeLessThanOrEqual(2)
     for (const c of s.cases) {
       expect(c.reasons.length).toBeGreaterThan(0)
       expect(c.caseStudy.reviewRequired).not.toBe(true)
       expect(c.caseStudy.verificationStatus).toBe('verified')
+      // 동종업계 안에서만 고른다
+      expect(c.caseStudy.industry).toBe('manufacturing')
     }
-    expect(new Set(s.cases.map((c) => c.kind)).size).toBe(s.cases.length)
+    expect(s.caseNotice).toBe('')
     expect(s.scripts.map((x) => x.key)).toEqual(expect.arrayContaining(['opening', 'price', 'case', 'closing']))
     for (const sc of s.scripts) {
       expect(sc.say.split(/[.!?。]\s/).length).toBeLessThanOrEqual(3)
@@ -70,6 +76,8 @@ describe('Strategy Autopilot', () => {
     expect(s.forbidden.some((x) => x.includes('후불'))).toBe(true)
     expect(s.forbidden.some((x) => x.includes('매출'))).toBe(true)
     expect(s.missingInfo.length).toBeLessThanOrEqual(3)
+    // 기업인증은 1차 미팅 가설·요약에 쓰지 않는다 (2차 제안·Master 분석용)
+    expect(s.hypotheses.some((h) => /연구소|벤처|이노비즈|인증/.test(h.text))).toBe(false)
     expect(s.confidence.level).toBe('high')
     expect(s.sources.find((x) => x.label === '인원')?.where).toBe('PDF 2p')
     expect(s.sources.find((x) => x.label === '거래형태')?.status).toBe('assumed')
@@ -80,7 +88,7 @@ describe('Strategy Autopilot', () => {
     expect(s.missingInfo[0]).toContain('직원수')
     expect(s.missingInfo[1]).toContain('거래형태')
     expect(s.hypotheses).toHaveLength(0)
-    expect(s.cases.length).toBeGreaterThanOrEqual(2)
+    expect(s.cases.length).toBeLessThanOrEqual(2)
     expect(s.sources.filter((x) => x.status === 'unknown').length).toBeGreaterThanOrEqual(2)
   })
   it('사전진단 NO_GO 면 범위 가설 D', () => {
@@ -97,21 +105,19 @@ describe('Strategy Autopilot', () => {
   })
 })
 
-describe('Case Matcher V2', () => {
-  it('세부업종·제품 키워드, 성장 추이, 기술 인증, 접점 필요가 이유에 나타나고 ③ 전환경로 사례가 붙는다', () => {
+describe('Case Matcher — Pool 안에서의 점수', () => {
+  it('프로필 세부업종·제품이 겹치면 같은 업종 안에서 위로 올라간다', () => {
     const rec = recommendCases(CASE_SEED, company(), ['ceo_dependency', 'quote_order', 'customer_mgmt'], {
       areaLabel: (a) => AREA_LABEL[a],
       fundingInterest: true,
       customerTouchpoint: true,
       profile: { subIndustry: '자동차 부품 제조업', keywords: ['정밀 절삭 부품', '금형'], revenueTrend: 'up', yearsInBusiness: 14, certifications: ['벤처기업', '기업부설연구소'] },
     })
-    expect(rec.primary).not.toBeNull()
-    expect(rec.secondary).not.toBeNull()
-    expect(rec.tertiary).not.toBeNull()
-    const ids = new Set([rec.primary!.caseStudy.id, rec.secondary!.caseStudy.id, rec.tertiary!.caseStudy.id])
-    expect(ids.size).toBe(3)
-    const allReasons = [rec.primary, rec.secondary, rec.tertiary, ...rec.others.slice(0, 20)].flatMap((m) => m!.reasons)
-    expect(allReasons.some((r) => /세부업종|성장 추이|기술 인증|접점/.test(r))).toBe(true)
-    expect(rec.tertiary!.reasons.some((r) => /전환 방식|접점|자동화 방식/.test(r))).toBe(true)
+    expect(rec.pool).toBe('industry')
+    expect(rec.picks.length).toBeGreaterThan(0)
+    expect(rec.picks.length).toBeLessThanOrEqual(2)
+    for (const m of rec.picks) expect(m.caseStudy.industry).toBe('manufacturing')
+    const allReasons = rec.picks.flatMap((m) => m.reasons)
+    expect(allReasons.some((r) => /세부분야|같은 업종|문제 구조|성장|규모/.test(r))).toBe(true)
   })
 })

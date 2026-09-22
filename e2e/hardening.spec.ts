@@ -84,6 +84,7 @@ test.describe('운영 안정화', () => {
     await page.getByTestId('trash-row').filter({ hasText: '철회테스트' }).getByTestId('restore').click()
     // 철회 → Partner withdrawn + 운영 OS 이벤트 ignored(+사유)
     await page.goto(companyUrl!)
+    await page.getByTestId('open-docs').click()
     await page.getByTestId('meeting-row').first().getByRole('link').click()
     await expect(page).toHaveURL(/\/handoffs\//)
     await page.getByTestId('withdraw-handoff').click()

@@ -127,6 +127,20 @@ describe('generic company document parser', () => {
     const p4 = parseCompanyDocument(doc([['2025년 실적', '매출액 12억 3,000만원', '영업이익 1억 5,000만원']]))
     expect(p4.facts.financials[0]).toMatchObject({ year: 2025, revenue: 1_230_000_000, operatingProfit: 150_000_000 })
   })
+  it('회사명에 뒤따르는 라벨을 잘라낸다 — "매시브크리에이티브 영문기업명 MassiveCreative" 같은 한 줄', () => {
+    const cases: [string, string][] = [
+      ['회사명 : 매시브크리에이티브 영문기업명 MassiveCreative', '매시브크리에이티브'],
+      ['기업명 : 테스트정밀 주식회사 대표자 김가상', '테스트정밀'],
+      ['상호 : 한빛물류 영문명 Hanbit Logistics', '한빛물류'],
+      ['회사명 : 가온에프앤비 English Name GAON F&B', '가온에프앤비'],
+      ['회사명 : 미래에이아이랩 대표이사 김상호', '미래에이아이랩'],
+      ['회사명 : 새봄케어 (주)', '새봄케어'],
+    ]
+    for (const [line, want] of cases) {
+      const parsed = parseCompanyDocument(doc([[line]]))
+      expect(parsed.facts.companyName, line).toBe(want)
+    }
+  })
   it('크레탑 문구가 있으면 cretop 어댑터(미검증 표시)', () => {
     const p5 = parseCompanyDocument(doc([['CRETOP 기업정보', '기업체명 : 나이스테스트', '종업원수(명) : 9']]))
     expect(p5.adapter).toBe('cretop')
@@ -146,7 +160,7 @@ describe('pdf.js text layer → lines', () => {
     ]
     expect(itemsToLines(items)).toEqual(['회사명', '종업원수: 14명'])
   })
-  it('픽스처 PDF 를 pdf.js(legacy) 로 읽어 같은 파서 결과가 나온다', async () => {
+  it('픽스처 PDF를 pdf.js(legacy) 로 읽어 같은 파서 결과가 나온다', async () => {
     const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJsLike
     const buf = readFileSync('e2e/fixtures/sample-company-report.pdf')
     const text = await extractPdfTextWith(pdfjs, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'sample-company-report.pdf', { cMapUrl: 'node_modules/pdfjs-dist/cmaps/', standardFontDataUrl: 'node_modules/pdfjs-dist/standard_fonts/' })

@@ -1,4 +1,4 @@
-/** MASTER — 2차 제안 요청함. 상태 카운트 · 검색(회사명/파트너) · 필터(파트너/기간/AX 필요도/범위) · 정렬 · 행 액션. 운영 OS 의 2차 제안 기능은 중복 구현하지 않는다. */
+/** MASTER — 2차 제안 요청함. 상태 카운트 · 검색(회사명/파트너) · 필터(파트너/기간/AX 필요도/범위) · 정렬 · 행 액션. 운영 OS의 2차 제안 기능은 중복 구현하지 않는다. */
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Archive, ExternalLink, Search } from 'lucide-react'
@@ -87,7 +87,7 @@ export default function MasterInboxPage() {
     <div className="mx-auto max-w-[1360px] space-y-5">
       <PageTitle
         title="2차 제안 요청함"
-        sub="파트너가 1차 미팅을 마치고 보낸 구조화 패킷. 운영 OS 이벤트함(customer_events)에도 같은 건이 등록됩니다. 2차 제안 작성은 운영 OS 에서 합니다."
+        sub="파트너가 1차 미팅을 마치고 보낸 구조화 패킷. 운영 OS 이벤트함(customer_events)에도 같은 건이 등록됩니다. 2차 제안 작성은 운영 OS에서 합니다."
         action={
           opsUrl ? (
             <a href={`${opsUrl.replace(/\/$/, '')}/ops/inbox`} target="_blank" rel="noreferrer" className="btn inline-flex h-12 items-center gap-2 rounded-(--radius-control) border border-line-strong bg-white px-4 font-semibold hover:bg-paper-2">

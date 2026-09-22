@@ -1,11 +1,11 @@
 /**
- * 운영 OS 전달 패킷 — PDF 가 아니라 구조화 데이터가 본체다.
+ * 운영 OS 전달 패킷 — PDF가 아니라 구조화 데이터가 본체다.
  * INTERNAL(내부 표현·메모)과 CLIENT SAFE(고객 문서용 문장)를 분리해서 담는다.
  */
 import type { Analysis, CaseStudy, Company, CurrentUser, HandoffPayload, Meeting } from '../types/domain'
 import { QUESTION_BY_ID, optionLabel } from '../content/questions'
 import { AREA_LABEL } from '../content/labels'
-import { recommendCases } from './caseMatcher'
+import { recommendCases, shownCases } from './caseMatcher'
 
 export function buildHandoffPayload(company: Company, meeting: Meeting, analysis: Analysis, user: CurrentUser, cases: CaseStudy[]): HandoffPayload {
   const answers = meeting.questionIds
@@ -29,7 +29,7 @@ export function buildHandoffPayload(company: Company, meeting: Meeting, analysis
     fundingInterest: Boolean(meeting.answers.funding_interest && meeting.answers.funding_interest.value !== 'none' && meeting.answers.funding_interest.value !== 'unknown'),
     areaLabel: (a) => AREA_LABEL[a],
   })
-  const similarCases = [rec.primary, rec.secondary].filter((m): m is NonNullable<typeof m> => Boolean(m)).map((m) => ({ id: m.caseStudy.id, companyName: m.caseStudy.companyName, whySimilar: m.whySimilar }))
+  const similarCases = shownCases(rec).map((m) => ({ id: m.caseStudy.id, companyName: m.caseStudy.companyName, whySimilar: m.whySimilar }))
 
   const fundingAnswer = meeting.answers.funding_interest?.value ?? ''
   const durationSec = meeting.startedAt && meeting.endedAt ? Math.max(0, Math.round((new Date(meeting.endedAt).getTime() - new Date(meeting.startedAt).getTime()) / 1000)) : null

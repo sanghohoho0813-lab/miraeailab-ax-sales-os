@@ -19,9 +19,17 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
     await prepareCompany(page, 'ABC산업', { phone: '010-1234-5678', shots: tag })
 
     // 2) 전략 화면 — 공략 포인트 3개 · 목표 · 주의 · 사전진단 건너뜀 · 추천 사례(리서치)
-    await expect(page.getByRole('list', { name: '오늘 공략 포인트' }).getByRole('listitem')).toHaveCount(3)
-    await expect(page.getByText('AX Fit 최우선 검토')).toBeVisible()
-    await expect(page.getByText(/사전진단으로 \d+개 건너뜀/)).toBeVisible()
+    await expect(page.getByRole('list', { name: '오늘 확인할 것' }).getByRole('listitem')).toHaveCount(3)
+    // 회사 핵심 4가지가 먼저 보인다 — 인증·재무 상세는 첫 화면에 없다
+    await expect(page.getByTestId('core-summary')).toBeVisible()
+    const countText = (await page.getByTestId('question-count').textContent()) ?? ''
+    const asked = Number(countText.match(/오늘 질문 (\d+)개/)?.[1] ?? 0)
+    const skipped = Number(countText.match(/사전진단으로 (\d+)개/)?.[1] ?? 0)
+    expect(asked, countText).toBeGreaterThan(0)
+    expect(asked + skipped, `전체 질문 수 ${countText}`).toBeGreaterThanOrEqual(5)
+    expect(asked + skipped, `전체 질문 수 ${countText}`).toBeLessThanOrEqual(7)
+    // 질문 목록은 미팅 전에 펼쳐 보여 주지 않는다
+    await expect(page.getByText('대표님이 직접 확인해야 진행되는 업무가 많은 편인가요?')).toHaveCount(0)
     await expect(page.getByTestId('case-row').first()).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/${tag}-03-strategy.png`, fullPage: true })
 
@@ -32,26 +40,24 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
     const progress = await page.getByTestId('live-progress').textContent()
     const total = Number(progress?.split('/')[1]?.trim())
     expect(total).toBeGreaterThanOrEqual(4)
-    expect(total).toBeLessThanOrEqual(9)
+    expect(total).toBeLessThanOrEqual(7)
     await expect(page.getByText(/사전진단으로 \d+개는 건너뜁니다/)).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/${tag}-04-live.png`, fullPage: true })
 
-    // WHY / SAY 바텀시트 — 닫으면 포커스·스크롤 복원
-    await page.getByTestId('open-why').click()
-    await expect(page.getByTestId('sheet-why')).toBeVisible()
-    await page.screenshot({ path: `${SHOTS}/${tag}-04b-live-why.png`, fullPage: true })
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('sheet-why')).toHaveCount(0)
-    expect(await page.evaluate(() => document.body.style.overflow)).toBe('')
+    // [어떻게 물어보지?] 하나로 합쳤다 — 그 안에 "왜 묻나요?" 와 "답하기 어려워함" 이 들어 있다
     await page.getByTestId('open-say').click()
     await expect(page.getByTestId('sheet-say')).toBeVisible()
-    await page.getByRole('button', { name: '닫기' }).click()
+    await page.getByTestId('open-why').click()
+    await expect(page.getByTestId('why-body')).toBeVisible()
+    await page.screenshot({ path: `${SHOTS}/${tag}-04b-live-why.png`, fullPage: true })
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('sheet-say')).toHaveCount(0)
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('')
 
-    // 코치 — 사전진단에서 "ERP 있지만 밖에서 다시 관리" 로 답했으므로 "ERP 가 있다고 할 때" 가 지금 상황으로 올라온다
+    // 코치 — 사전진단에서 "ERP 있지만 밖에서 다시 관리" 로 답했으므로 "ERP가 있다고 할 때" 가 지금 상황으로 올라온다
     await page.getByTestId('open-coach').click()
     await expect(page.getByTestId('sheet-coach')).toBeVisible()
-    await expect(page.getByTestId('coach-now').filter({ hasText: 'ERP 가 있다고 할 때' })).toHaveCount(1)
+    await expect(page.getByTestId('coach-now').filter({ hasText: 'ERP가 있다고 할 때' })).toHaveCount(1)
     await expect(page.getByTestId('sheet-coach').getByText('자주 나오는 상황')).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/${tag}-04c-live-coach.png`, fullPage: true })
     await page.getByRole('button', { name: '닫기' }).click()
@@ -70,7 +76,9 @@ test.describe('AX Partner OS — 핵심 흐름', () => {
 
     // 4) 요약 먼저 — 핵심 01/02/03 + 추천 범위, 상세는 접혀 있음
     await expect(page).toHaveURL(/\/result$/)
-    await expect(page.getByRole('heading', { name: '오늘 확인한 핵심' })).toBeVisible()
+    // 결과는 언제나 맨 위에서 시작한다
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    await expect(page.getByTestId('result-title')).toContainText('미팅 분석 완료')
     expect(await page.getByTestId('core-finding').count()).toBeGreaterThanOrEqual(1)
     await expect(page.getByText('추천 범위')).toBeVisible()
     await expect(page.getByTestId('analysis-detail')).toHaveCount(0)

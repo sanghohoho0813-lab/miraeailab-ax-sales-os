@@ -1,5 +1,5 @@
 /**
- * 미팅 준비 첫 화면 — "업체 정보를 어떻게 가져올까요?" 큰 CTA 3개. PDF 가 가장 강조되지만 PDF 없이도 모든 기능이 동작한다.
+ * 미팅 준비 첫 화면 — "업체 정보를 어떻게 가져올까요?" 큰 CTA 3개. PDF가 가장 강조되지만 PDF 없이도 모든 기능이 동작한다.
  */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
