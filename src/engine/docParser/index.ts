@@ -5,7 +5,8 @@
  */
 import type { CreateCompanyInput, Headcount, Industry, Interest, ProfileFacts, TradeType } from '../../types/domain'
 import { docKindOf, pickAdapter } from './adapters'
-import { extractFacts } from './rules'
+import { headcountBand } from '../profile'
+import { extractEmployment, extractFacts } from './rules'
 import type { ParsedDocument, TextDoc } from './types'
 
 export type { ParsedDocument, TextDoc, TextPage } from './types'
@@ -18,11 +19,24 @@ export function hasUsableText(doc: TextDoc): boolean {
   return doc.textChars / doc.pageCount >= MIN_CHARS_PER_PAGE || doc.textChars >= 400
 }
 
-export function parseCompanyDocument(doc: TextDoc): ParsedDocument {
+export function parseCompanyDocument(doc: TextDoc, now = new Date()): ParsedDocument {
   const adapter = pickAdapter(doc)
   const { facts, evidence, warnings } = extractFacts(doc, adapter.aliases ?? {})
   if (!hasUsableText(doc)) warnings.unshift('텍스트 레이어가 거의 없습니다 (스캔 문서일 수 있음). 읽은 값이 적으면 직접 30초 등록을 권합니다.')
   if (adapter.id === 'cretop') warnings.push('크레탑 전용 규칙은 실제 샘플로 검증되기 전이라 일반 규칙과 같은 방식으로 읽었습니다. 값을 확인해 주세요.')
+  // 4대보험 명부는 사람 단위 정보를 버리고 집계만 남긴다
+  if (adapter.id === 'insurance_roster') {
+    const emp = extractEmployment(doc, now)
+    facts.employment = emp.employment
+    evidence.push(...emp.evidence)
+    warnings.push(...emp.warnings)
+    // 명부의 가입자 수는 직원수보다 정확하다 — 회사 기본정보에도 반영한다
+    if (emp.employment.insured !== null && facts.headcount === null) {
+      facts.headcount = emp.employment.insured
+      facts.headcountBand = headcountBand(emp.employment.insured)
+    }
+    warnings.push('명부의 개인정보(이름·주민번호·생년월일)는 읽지도 저장하지도 않았습니다. 인원 집계만 남습니다.')
+  }
   return { adapter: adapter.id, version: adapter.version, docKind: docKindOf(doc, adapter), facts, evidence, warnings, textChars: doc.textChars }
 }
 

@@ -2,7 +2,7 @@
  * 일반 기업정보 PDF 규칙 — "라벨 : 값" 한 줄 패턴과 재무 표(연도 열 + 항목 행).
  * 문서에 실제로 있는 값만 뽑고, 같은 항목에 서로 다른 값이 여러 번 나오면 첫 값을 🟡 추정으로 낮춘다.
  */
-import type { EvidenceField, FinancialYear, Headcount, ProfileFacts, TradeType } from '../../types/domain'
+import type { EmploymentFacts, EvidenceField, FinancialYear, Headcount, ProfileFacts, TradeType } from '../../types/domain'
 import type { RuleKey, TextDoc } from './types'
 import { detectUnitMultiplier, formatWon, normalizePhoneText, parseMoney } from './korean'
 import { isPersonalLine, scrubPii } from './pii'
@@ -349,3 +349,85 @@ export function growthOf(fin: FinancialYear[]): ProfileFacts['growth'] {
 }
 
 export type { Headcount }
+
+/* ------------------------------------------------------------------ */
+/* 4대보험 가입자 명부 — 집계만 한다                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 명부에서 세는 것은 셋뿐이다: 몇 명인가, 최근 12개월에 몇 명 들어왔나, 몇 명 나갔나.
+ *
+ * 이름·주민번호·생년월일은 **읽지도 저장하지도 않는다.** 근거 한 줄(sourceText)도 남기지 않는다 —
+ * 명부의 한 줄은 그 자체가 한 사람의 개인정보이기 때문이다. 집계 숫자와 "명부 N행" 이라는 사실만 남긴다.
+ *
+ * 날짜는 YYYY-MM-DD / YYYY.MM.DD / YYYYMMDD 를 읽는다. 한 줄에 취득일·상실일이 같이 있으면 앞이 취득, 뒤가 상실이다.
+ */
+/**
+ * 날짜 하나. 앞뒤가 숫자·하이픈이면 날짜가 아니다 —
+ * 주민번호(900101-1234567) 안에서 "9001-01-12" 같은 가짜 날짜를 집어내면
+ * 그 줄의 진짜 취득일을 통째로 건너뛰게 된다(E2E 에서 실제로 잡힌 버그).
+ */
+const DATE_RE = /(?<![\d\-.])(\d{4})[.\-/]?\s?(\d{1,2})[.\-/]?\s?(\d{1,2})(?![\d])/g
+
+function parseDates(raw: string): Date[] {
+  // 개인정보는 읽기 전에 지운다. 파서가 주민번호를 "보지 않는" 것이 이 함수의 전제다.
+  const line = scrubPii(raw)
+  const out: Date[] = []
+  DATE_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = DATE_RE.exec(line)) !== null) {
+    const y = Number(m[1])
+    const mo = Number(m[2])
+    const d = Number(m[3])
+    if (y < 1960 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) continue
+    out.push(new Date(y, mo - 1, d))
+  }
+  return out
+}
+
+export function extractEmployment(doc: TextDoc, now = new Date()): { employment: EmploymentFacts; evidence: EvidenceField[]; warnings: string[] } {
+  const warnings: string[] = []
+  const cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+  // 취득/상실 열이 어디인지 — 헤더 줄에서 순서를 본다
+  const header = doc.pages.flatMap((p) => p.lines).find((l) => /(자격)?취득일/.test(l))
+  const lossFirst = header ? header.search(/(자격)?상실일/) >= 0 && header.search(/(자격)?상실일/) < header.search(/(자격)?취득일/) : false
+
+  let rows = 0
+  let joined12m = 0
+  let left12m = 0
+  let left = 0
+  for (const page of doc.pages) {
+    for (const line of page.lines) {
+      // 헤더·합계 줄은 사람 행이 아니다
+      if (/(자격)?취득일|합\s*계|소\s*계|계\s*:/.test(line) && !/(?<![\d\-.])\d{4}(?![\d])/.test(scrubPii(line))) continue
+      const dates = parseDates(line)
+      if (!dates.length) continue
+      // 사람 행으로 볼 수 있는 최소 조건: 날짜가 하나 이상 있고 그 줄에 금액 표가 아닐 것
+      if (/(매출|자산|부채|자본|영업이익|당기순)/.test(line)) continue
+      rows++
+      const join = lossFirst ? dates[dates.length - 1] : dates[0]
+      const loss = dates.length > 1 ? (lossFirst ? dates[0] : dates[1]) : null
+      if (join >= cutoff && join <= now) joined12m++
+      if (loss) {
+        left++
+        if (loss >= cutoff && loss <= now) left12m++
+      }
+    }
+  }
+
+  const insured = rows > 0 ? rows - left : null
+  if (rows === 0) warnings.push('명부에서 취득일이 적힌 행을 찾지 못했습니다. 가입자 수를 직접 입력해 주세요.')
+  if (rows > 0 && rows < 3) warnings.push(`명부에서 ${rows}행만 읽었습니다. 표가 이미지로 되어 있으면 일부만 읽힐 수 있습니다 — 숫자를 확인해 주세요.`)
+
+  const employment: EmploymentFacts = { insured, joined12m: rows ? joined12m : null, left12m: rows ? left12m : null, asOf: null, datedRows: rows }
+  // 근거에는 숫자만 — 명부 원문 한 줄은 개인정보라 남기지 않는다
+  const evidence: EvidenceField[] = []
+  const add = (key: string, label: string, value: number | null, display: string) => {
+    if (value === null) return
+    evidence.push({ key, label, value, display, status: 'confirmed', source: 'pdf', sourcePage: null, sourceText: `4대보험 명부 ${rows}행 집계 (개인정보는 저장하지 않음)` })
+  }
+  add('emp_insured', '4대보험 가입자', insured, `${insured}명`)
+  add('emp_joined12m', '최근 1년 입사', rows ? joined12m : null, `${joined12m}명`)
+  add('emp_left12m', '최근 1년 퇴사', rows ? left12m : null, `${left12m}명`)
+  return { employment, evidence, warnings }
+}

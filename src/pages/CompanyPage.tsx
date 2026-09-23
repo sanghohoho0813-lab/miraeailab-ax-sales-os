@@ -8,13 +8,14 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown } from 'lucide-react'
+import { Play, Pencil, ArrowLeft, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { PICK_LIMIT } from '../engine/caseMatcher'
+import { documentStatus, missingRequired } from '../engine/documents'
 
 /** 준비 화면에 기본으로 펼치는 사례 수 */
 const CASE_PREVIEW = 3
@@ -204,6 +205,7 @@ export default function CompanyPage() {
     }
   }
 
+  const missingDocs = missingRequired(documentStatus(profiles))
   const d = company.diagnosis
   const pinned = (company.pinnedCaseIds ?? []).map((id) => cases.find((c) => c.id === id)).filter((c): c is CaseStudy => Boolean(c))
   const recs = strategy.cases.filter((m) => !pinned.some((p) => p.id === m.caseStudy.id))
@@ -311,7 +313,24 @@ export default function CompanyPage() {
         )}
       </section>
 
-      {/* 5) 더보기 — 기본은 닫혀 있다 */}
+      {/* 5) 기업분석 도구 — 서류가 비면 여기서도 눈에 띈다 */}
+      <Link
+        to={`/companies/${company.id}/tools`}
+        className={`lift flex flex-wrap items-center gap-3 rounded-(--radius-card) border-2 px-4 py-3.5 ${missingDocs.length ? 'border-warn-600/40 bg-warn-50' : 'border-line bg-white hover:border-accent-200'}`}
+        data-testid="tools-entry"
+        data-missing={missingDocs.length}
+      >
+        {missingDocs.length ? <AlertTriangle aria-hidden="true" className="size-6 shrink-0 text-warn-700" /> : <Wrench aria-hidden="true" className="size-6 shrink-0 text-accent-600" />}
+        <span className="min-w-0 flex-1">
+          <span className="block text-[1.05rem] font-bold">기업분석 도구</span>
+          <span className={`t-sub block ${missingDocs.length ? 'font-bold text-warn-700' : 'text-ink-500'}`}>
+            {missingDocs.length ? `서류 ${missingDocs.length}건이 없습니다 — ${missingDocs.map((d) => d.label.split(' (')[0]).join(' · ')}` : '기업정보 분석 · 고용지원금 검토 · 정책자금 유력 기관'}
+          </span>
+        </span>
+        <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-ink-300" />
+      </Link>
+
+      {/* 6) 더보기 — 기본은 닫혀 있다 */}
       <section className="flex flex-wrap gap-2 border-t border-line pt-5">
         <Button size="sm" onClick={() => setSheet('detail')} data-testid="open-detail">
           <ListChecks aria-hidden="true" className="size-4" /> 상세 전략

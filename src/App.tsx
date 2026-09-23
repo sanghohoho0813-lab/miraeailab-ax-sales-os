@@ -12,6 +12,7 @@ import MeetingsPage from './pages/MeetingsPage'
 import CompanyNewPage from './pages/CompanyNewPage'
 import IntakeStartPage from './pages/IntakeStartPage'
 import CompanyPage from './pages/CompanyPage'
+import CompanyToolsPage from './pages/CompanyToolsPage'
 import MeetingLivePage from './pages/MeetingLivePage'
 import MeetingResultPage from './pages/MeetingResultPage'
 import CasesPage from './pages/CasesPage'
@@ -91,6 +92,7 @@ function AppRoutes() {
         <Route path="companies/trash" element={<CompanyTrashPage />} />
         <Route path="companies/:companyId" element={<CompanyPage />} />
         <Route path="companies/:companyId/edit" element={<CompanyNewPage />} />
+        <Route path="companies/:companyId/tools" element={<CompanyToolsPage />} />
         <Route
           path="companies/:companyId/pdf"
           element={

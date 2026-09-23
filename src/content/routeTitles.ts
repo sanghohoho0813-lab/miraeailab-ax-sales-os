@@ -11,6 +11,7 @@ const RULES: { test: RegExp; title: string }[] = [
   { test: /^\/companies\/[^/]+\/pdf/, title: '기업자료 추가' },
   { test: /^\/companies\/trash/, title: '고객 휴지통' },
   { test: /^\/companies\/[^/]+\/edit/, title: '고객 정보 수정' },
+  { test: /^\/companies\/[^/]+\/tools/, title: '기업분석 도구' },
   { test: /^\/companies\/[^/]+/, title: '미팅 전략' },
   { test: /^\/companies/, title: '고객' },
   { test: /^\/handoffs\//, title: '2차 제안 요청' },

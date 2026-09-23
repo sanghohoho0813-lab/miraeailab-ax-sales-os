@@ -155,6 +155,25 @@ export interface ProfileFacts {
   financials: FinancialYear[]
   growth: { revenueTrend: 'up' | 'down' | 'flat' | null; revenueGrowthPct: number | null; latestYear: number | null }
   notes: string[]
+  /**
+   * 4대보험 가입자 명부 집계. 사람 단위 정보(이름·주민번호·생년월일)는 저장하지 않는다 — 숫자만 남긴다.
+   * 명부를 올리지 않았으면 null.
+   */
+  employment?: EmploymentFacts | null
+}
+
+/** 4대보험 명부에서 센 것. 판정이 아니라 사실이다 */
+export interface EmploymentFacts {
+  /** 명부에 있는 가입자 수 */
+  insured: number | null
+  /** 최근 12개월 자격취득(입사) 인원 */
+  joined12m: number | null
+  /** 최근 12개월 자격상실(퇴사) 인원 */
+  left12m: number | null
+  /** 명부 기준일 (YYYY-MM-DD, 문서에서 읽은 경우만) */
+  asOf: string | null
+  /** 취득일을 읽어 낸 행 수 — 집계를 얼마나 믿을 수 있는지 */
+  datedRows: number
 }
 
 export interface CompanyProfile {

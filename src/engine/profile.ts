@@ -29,6 +29,7 @@ export function emptyFacts(): ProfileFacts {
     financials: [],
     growth: { revenueTrend: null, revenueGrowthPct: null, latestYear: null },
     notes: [],
+    employment: null,
   }
 }
 
@@ -102,7 +103,7 @@ export function evidenceLine(e: EvidenceField): string {
 
 /** 검토 화면에서 고친/제외한 근거를 facts 에 반영한다 — 제외된 항목은 null / [] 로, 고친 값은 그 값으로 */
 export function applyEvidence(base: ProfileFacts, evidence: EvidenceField[]): ProfileFacts {
-  const f: ProfileFacts = { ...base, products: [...base.products], certifications: [...base.certifications], financials: base.financials.map((x) => ({ ...x })), growth: { ...base.growth }, notes: [...base.notes] }
+  const f: ProfileFacts = { ...base, products: [...base.products], certifications: [...base.certifications], financials: base.financials.map((x) => ({ ...x })), growth: { ...base.growth }, notes: [...base.notes], employment: base.employment ? { ...base.employment } : null }
   const str = (v: EvidenceField['value']) => (v === null ? null : String(v))
   const num = (v: EvidenceField['value']) => {
     if (v === null) return null

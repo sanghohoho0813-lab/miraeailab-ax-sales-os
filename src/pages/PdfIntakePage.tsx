@@ -607,6 +607,13 @@ export default function PdfIntakePage() {
                 기존 고객 <span className="text-accent-700">{target.name}</span> 에 정보 추가
               </h2>
               <p className="t-sub mt-1 text-ink-500">다른 값이 있는 항목만 보여 드립니다. 자동으로 덮어쓰지 않습니다 — 항목마다 고르세요.</p>
+              {/* 기존 고객에 서류를 추가할 때도 무엇을 읽었는지 확인할 수 있어야 한다 (명부의 개인정보 경고도 여기 있다) */}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button onClick={() => setDetailOpen(true)} data-testid="open-evidence">
+                  <FileText aria-hidden="true" className="size-4" /> 추출정보 전체보기 ({activeEvidence.length})
+                </Button>
+                {removedCount > 0 && <span className="t-meta text-ink-500">사용 안 함 {removedCount}개</span>}
+              </div>
               {diffs.length === 0 ? (
                 <p className="t-body mt-3 rounded-(--radius-control) bg-paper-2 px-4 py-3 text-ink-700">기본 정보는 이미 같습니다. 기업자료(재무·인증·근거)만 추가됩니다.</p>
               ) : (
