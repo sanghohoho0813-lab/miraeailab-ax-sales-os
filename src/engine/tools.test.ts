@@ -8,6 +8,7 @@ import { parseCompanyDocument } from './docParser'
 import { documentStatus, missingRequired, toolStatus } from './documents'
 import { reviewEmployment } from './employment'
 import { recommendInstitutions, hasPublicFunding } from './policyFund'
+import { planFunding } from './fundingMatch'
 import { CASE_SEED } from '../content/cases'
 import { emptyFacts } from './profile'
 import type { Company, CompanyProfile, TextDoc } from '../types/domain'
@@ -149,5 +150,69 @@ describe('정책자금 유력 기관 — 사례에 적힌 기관만', () => {
   it('업종·업력·근로자 수가 비면 먼저 채우라고 알려 준다', () => {
     const r = recommendInstitutions(CASE_SEED, company({ industry: 'other', industryNote: '', headcount: 'unknown' }))
     expect(r.missing.length).toBe(3)
+  })
+})
+
+describe('자금 조달 사례 — 융자 먼저, 중소기업 규모 먼저', () => {
+  const co = (industry: Company['industry'], over: Partial<Company> = {}) => company({ industry, ...over })
+
+  it('업종마다 융자·보증 3 + 투자 2 로 채운다', () => {
+    for (const ind of ['manufacturing', 'service', 'food', 'medical', 'distribution', 'logistics', 'construction', 'environment'] as const) {
+      const p = planFunding(CASE_SEED, co(ind))
+      expect(p.loanCount, ind).toBe(3)
+      expect(p.investCount, ind).toBe(2)
+      expect(p.picks.slice(0, 3).every((x) => x.kind === 'loan'), `${ind}: 융자가 먼저 와야 한다`).toBe(true)
+      for (const x of p.picks) expect(x.sameIndustry, `${ind}: 본 목록에 타업종 혼입`).toBe(true)
+    }
+  })
+
+  it('한 회사가 본 목록의 두 칸을 먹지 않는다 — 다른 조달 건은 접어 둔다', () => {
+    const p = planFunding(CASE_SEED, co('manufacturing'))
+    const names = p.picks.map((x) => x.companyName)
+    expect(new Set(names).size).toBe(names.length)
+    // 퓨리언스는 기보 5억·중진공 3억·퍼스트펭귄 20억 세 건이 있다 → 한 장에 접힌다
+    const puri = p.picks.find((x) => x.companyName === '퓨리언스')!
+    expect(puri.alsoRaised.length).toBeGreaterThan(0)
+  })
+
+  it('5~30명 회사 눈높이 — 20억 초과만 늘어서지 않는다', () => {
+    for (const ind of ['manufacturing', 'service', 'food', 'medical', 'environment'] as const) {
+      const p = planFunding(CASE_SEED, co(ind))
+      const small = p.picks.filter((x) => x.band === 'under5' || x.band === 'under10').length
+      expect(small, `${ind}: 10억 이내 사례가 3건 미만`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('"최대 ○억" 을 실제 받은 돈처럼 다루지 않는다', () => {
+    const p = planFunding(CASE_SEED, co('food'))
+    const caps = p.picks.filter((x) => x.loan?.amountKind === 'program_cap')
+    if (caps.length) expect(p.cautions.some((c) => c.includes('실제로 받은 돈이 아닙니다'))).toBe(true)
+    // 제도 한도 사례는 "확보" 로 표시되지 않는다
+    for (const x of caps) expect(x.why).not.toContain('확보 금액 공개')
+  })
+
+  it('세부업종이 들어오면(크레탑 업로드) 같은 세부분야가 위로 올라온다', () => {
+    const p = planFunding(CASE_SEED, co('manufacturing'), { subIndustry: '반도체 검사장비 제조', products: ['웨이퍼 검사'] })
+    expect(p.picks[0].companyName).toBe('퓨리언스')
+    expect(p.picks[0].industryText).toContain('반도체')
+  })
+
+  it('사이드 "비슷한 사례" 는 흔한 한 단어로 타업종을 끌어오지 않는다', () => {
+    const p = planFunding(CASE_SEED, co('service'), { subIndustry: '광고·마케팅 콘텐츠', products: ['브랜드 콘텐츠'] })
+    for (const x of p.nearby) {
+      if (!x.sameIndustry) expect(x.hits, `${x.companyName}: 한 단어로 올라옴`).toBeGreaterThanOrEqual(2)
+      expect(x.industryText).not.toBe('')
+    }
+  })
+
+  it('업종을 모르면 본 목록을 만들지 않고 이유를 말한다', () => {
+    const p = planFunding(CASE_SEED, co('other', { industryNote: '' }))
+    expect(p.picks).toHaveLength(0)
+    expect(p.cautions.some((c) => c.includes('업종을 확인하면'))).toBe(true)
+  })
+
+  it('신청 자격이 아니라는 것을 항상 말한다', () => {
+    const p = planFunding(CASE_SEED, co('manufacturing'))
+    expect(p.cautions.some((c) => c.includes('신청 자격'))).toBe(true)
   })
 })

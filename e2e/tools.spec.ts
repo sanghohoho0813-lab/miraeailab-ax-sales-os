@@ -38,10 +38,19 @@ test.describe('기업분석 도구', () => {
     // 도구 3개 — 서류가 없어도 화면에 있고, 무엇이 없는지 말한다
     await expect(page.getByTestId('tool-card')).toHaveCount(3)
     await expect(page.locator('[data-testid="tool-card"][data-tool="employment_subsidy"]')).toHaveAttribute('data-ready', 'false')
-    // 정책자금은 서류 없이도 결과가 나온다
+    // 정책자금은 서류 없이도 결과가 나온다 — 융자 3 + 투자 2
     await expect(page.locator('[data-testid="tool-card"][data-tool="policy_fund"]')).toHaveAttribute('data-ready', 'true')
-    await expect(page.getByTestId('fund-result')).toBeVisible()
-    await expect(page.getByTestId('fund-cautions')).toContainText('신청 자격')
+    await expect(page.getByTestId('funding-plan')).toBeVisible()
+    const cards = page.getByTestId('funding-plan').locator('[data-testid="fund-card"]')
+    const kinds = await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-kind')))
+    expect(kinds.slice(0, 5)).toEqual(['loan', 'loan', 'loan', 'investment', 'investment'])
+    // 중소기업 눈높이 — 앞 5장에 10억 이내가 3건 이상
+    const bands = await cards.evaluateAll((els) => els.slice(0, 5).map((e) => e.getAttribute('data-band')))
+    expect(bands.filter((b) => b === 'under5' || b === 'under10').length).toBeGreaterThanOrEqual(3)
+    await expect(page.getByTestId('funding-cautions')).toContainText('신청 자격')
+    // 제도 한도를 실제 받은 돈처럼 보여 주지 않는다
+    const planText = await page.getByTestId('funding-plan').innerText()
+    if (planText.includes('제도 한도')) expect(planText).toContain('실제로 받은 돈이 아닙니다')
     // 화면에 조사 placeholder 가 없다
     expect(await page.locator('main').innerText()).not.toMatch(/이\(가\)|을\(를\)|은\(는\)/)
   })

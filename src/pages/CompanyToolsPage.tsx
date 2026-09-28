@@ -19,6 +19,8 @@ import { latestProfile } from '../engine/profile'
 import { documentStatus, missingRequired, toolStatus, type DocStatus } from '../engine/documents'
 import { reviewEmployment } from '../engine/employment'
 import { recommendInstitutions } from '../engine/policyFund'
+import { AMOUNT_BAND_LABEL, planFunding, type FundingPick } from '../engine/fundingMatch'
+import { AMOUNT_KIND_LABEL, AMOUNT_KIND_NOTE, FUNDING_FORM_LABEL } from '../content/fundingCases'
 import { formatDate } from '../lib/util'
 import { TOOL_SPECS } from '../content/documents'
 
@@ -53,6 +55,10 @@ export default function CompanyToolsPage() {
   const profile = useMemo(() => latestProfile(profiles ?? []), [profiles])
   const employment = useMemo(() => (company ? reviewEmployment(company, profile) : null), [company, profile])
   const fund = useMemo(() => (company ? recommendInstitutions(cases, company, { yearsInBusiness: profile?.facts.yearsInBusiness ?? null }) : null), [cases, company, profile])
+  const plan = useMemo(
+    () => (company ? planFunding(cases, company, { subIndustry: profile?.facts.subIndustry, products: profile?.facts.products, yearsInBusiness: profile?.facts.yearsInBusiness ?? null }) : null),
+    [cases, company, profile],
+  )
 
   if (!profiles || !company) return <SkeletonList rows={4} />
 
@@ -164,10 +170,50 @@ export default function CompanyToolsPage() {
         ))}
       </ToolSection>
 
-      {/* 5) 정책자금 유력 기관 */}
+      {/* 5) 정책자금 — 조달 사례가 먼저, 기관 요약은 그 아래 */}
       <ToolSection id="policy_fund" tools={tools} onUpload={upload}>
+        {plan && (
+          <div className="space-y-4" data-testid="funding-plan">
+            <p className="t-sub text-ink-500">
+              같은 업종에서 <b>융자·보증 {plan.loanCount}건 + 투자 {plan.investCount}건</b>을 골랐습니다. 금액이 작은 실제 조달부터 보여 드립니다.
+            </p>
+            {plan.picks.length === 0 ? (
+              <EmptyState title="같은 업종의 조달 사례를 찾지 못했습니다" body="업종을 확인하면 골라 드립니다. 억지로 다른 업종 사례를 붙이지 않습니다." />
+            ) : (
+              <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {plan.picks.map((x) => (
+                  <FundCard key={`${x.kind}-${x.id}`} p={x} companyId={company.id} />
+                ))}
+              </ul>
+            )}
+            {plan.nearby.length > 0 && (
+              <div>
+                <p className="t-section mb-2">비슷한 사례도 참고하세요</p>
+                <ul className="grid gap-3 md:grid-cols-3">
+                  {plan.nearby.map((x) => (
+                    <FundCard key={`n-${x.kind}-${x.id}`} p={x} companyId={company.id} compact />
+                  ))}
+                </ul>
+              </div>
+            )}
+            <ul className="t-sub space-y-1.5 rounded-(--radius-control) bg-warn-50 px-4 py-3 font-semibold text-warn-700" data-testid="funding-cautions">
+              {plan.cautions.map((c) => (
+                <li key={c}>⚠ {c}</li>
+              ))}
+            </ul>
+            {plan.missing.length > 0 && (
+              <p className="t-sub text-ink-500">
+                먼저 채우면 정확해집니다: {plan.missing.join(' · ')} ·{' '}
+                <Link to={`/companies/${company.id}/edit`} className="font-semibold text-accent-700 underline">
+                  정보 수정
+                </Link>
+              </p>
+            )}
+          </div>
+        )}
         {fund && (
-          <div className="space-y-3" data-testid="fund-result">
+          <div className="mt-6 space-y-3" data-testid="fund-result">
+            <p className="t-section">이 업종에 자주 나오는 기관</p>
             {fund.institutions.length === 0 ? (
               <EmptyState title="사례에서 확인된 기관이 없습니다" body="이 업종에서 공공·정책 자금 기관이 적힌 검수 사례를 찾지 못했습니다. 억지로 기관을 붙이지 않습니다." />
             ) : (
@@ -190,23 +236,51 @@ export default function CompanyToolsPage() {
                 ))}
               </ul>
             )}
-            <ul className="t-sub space-y-1.5 rounded-(--radius-control) bg-warn-50 px-4 py-3 font-semibold text-warn-700" data-testid="fund-cautions">
-              {fund.cautions.map((c) => (
-                <li key={c}>⚠ {c}</li>
-              ))}
-            </ul>
-            {fund.missing.length > 0 && (
-              <p className="t-sub text-ink-500">
-                먼저 채우면 정확해집니다: {fund.missing.join(' · ')} ·{' '}
-                <Link to={`/companies/${company.id}/edit`} className="font-semibold text-accent-700 underline">
-                  정보 수정
-                </Link>
-              </p>
-            )}
           </div>
         )}
       </ToolSection>
     </div>
+  )
+}
+
+/**
+ * 조달 사례 한 장. 금액 옆에 성격(확보 금액 / 지원 예정 / 제도 한도)을 반드시 붙인다 —
+ * "최대 40억" 을 그 회사가 받은 돈으로 읽으면 대표 앞에서 틀린 말을 하게 된다.
+ */
+function FundCard({ p, companyId, compact = false }: { p: FundingPick; companyId: string; compact?: boolean }) {
+  const loan = p.loan
+  const inv = p.investment
+  const kindTone = p.kind === 'loan' ? 'ok' : 'info'
+  return (
+    <li className="flex flex-col rounded-(--radius-card) border border-line bg-white p-4" data-testid="fund-card" data-kind={p.kind} data-band={p.band}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Badge tone={kindTone}>{loan ? FUNDING_FORM_LABEL[loan.fundingForm] : '투자'}</Badge>
+        <span className="text-[1.05rem] font-bold">{p.companyName}</span>
+        <Badge tone={p.band === 'under5' || p.band === 'under10' ? 'ok' : 'neutral'}>{AMOUNT_BAND_LABEL[p.band]}</Badge>
+      </div>
+      <p className="t-meta mt-0.5 text-ink-500">{p.industryText}</p>
+      <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-[1.1rem] font-black">
+        {loan ? loan.amountText : `${(inv?.fundingAmountDisclosed ?? 0) / 100_000_000}억`}
+        {loan && (
+          <span className={`t-meta font-bold ${loan.amountKind === 'program_cap' ? 'text-warn-700' : 'text-ok-700'}`}>{AMOUNT_KIND_LABEL[loan.amountKind]}</span>
+        )}
+      </p>
+      {/* 긴 설명은 오해가 생기는 "제도 한도" 에만 붙인다 — 나머지는 배지로 충분하다 */}
+      {loan?.amountKind === 'program_cap' && <p className="t-meta mt-1 font-bold text-warn-700">{AMOUNT_KIND_NOTE.program_cap}</p>}
+      {loan && (
+        <p className="t-meta mt-1 text-ink-700">
+          {loan.institutionLabel} · {loan.program} · {loan.year}
+        </p>
+      )}
+      {inv && <p className="t-meta mt-1 text-ink-700">민간투자 · {inv.year}</p>}
+      {!compact && p.why.length > 0 && <p className="t-meta mt-2 font-semibold text-accent-800">{p.why.join(' · ')}</p>}
+      {p.alsoRaised.length > 0 && <p className="t-meta mt-1 text-ink-500">같은 회사 다른 조달: {p.alsoRaised.join(' / ')}</p>}
+      {inv && (
+        <Link to={`/cases/${inv.id}?company=${companyId}`} className="t-meta mt-auto pt-3 font-semibold text-accent-700 hover:underline">
+          사례 보기 →
+        </Link>
+      )}
+    </li>
   )
 }
 
