@@ -49,7 +49,7 @@ npm run test:e2e            # Playwright — 모바일/태블릿/PC 에서 핵�
 - [docs/SIMPLIFY_REPORT.md](docs/SIMPLIFY_REPORT.md) — 단순화(보이는 정보 절반 이하) · 동종업계 사례 매칭 · LIVE 우선 · 화면 이동 스크롤 보고
 - [docs/INTAKE_REPORT.md](docs/INTAKE_REPORT.md) — 지능형 등록(PDF 파이프라인 · 음성 · 미팅 일시 · 프로필 스키마 · 사례 매칭 V2 · Strategy Autopilot) 완료 보고
 - [docs/HARDENING_REPORT.md](docs/HARDENING_REPORT.md) — 운영 안정화(휴지통·철회 계약·파트너 수정·반응형·LIVE 저장) 보고
-- [docs/DAILY_REPORT.md](docs/DAILY_REPORT.md) — 실사용 고도화(업무 상태 엔진 · 홈 "지금 할 일" · 고객 통합 검색·필터·정렬 · 단계별 주 버튼 · 2차 미팅 일정 · 마스터 홈) 보고
+- [docs/DAILY_REPORT.md](docs/DAILY_REPORT.md) — 실사용 고도화(업무 상태 엔진 · 홈 "지금 할 일" · 고객 통합 검색·필터·정렬 · 단계별 주 버튼 · 2차 미팅 일정 · 마스터 홈 · 결과 기록·전환율) 보고
 
 ## 구조
 
@@ -68,6 +68,7 @@ supabase/
   migrations/20260922000004_partner_companies_pinned_cases.sql  업체별 "미팅에 사용할 사례"
   migrations/20260922000005_partner_ops_hardening.sql  휴지통/안전 삭제 RPC · 전달 철회↔운영 OS · 파트너 수정·마지막 마스터 보호 · 재배정 · 감사 로그 · 사례 검수
   migrations/20260922000006_partner_intake_profiles.sql  지능형 등록: 항목별 입력 출처 · 회사 프로필 스냅샷(PDF·음성 근거, 주민번호 거부, 이력) · 등록 이벤트
+  migrations/20260922000007_partner_deal_outcome.sql     딜 결과(계약·보류·무산 · 재연락일 · 무산 사유) — 1차 미팅 → 계약 전환율
   tests/partner_os_contract.sql                    순수 SQL 계약 테스트 (권한 격리 · 중복 방지 · 역동기화)
 e2e/       Playwright 핵심 흐름
 ```

@@ -76,9 +76,31 @@ export interface Company {
   assignedTo?: string | null
   /** 항목별 입력 출처 — 정보가 충돌할 때 무엇이 원본인지 (manual / pdf / voice / website_diagnosis / master_edit) */
   fieldSources?: FieldSources
+  /** 딜 결과 — 계약·보류·무산. 없으면 진행 중 (0007) */
+  outcome?: DealOutcome | null
   archivedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * 딜 결과 — 2차 미팅 뒤(또는 그 전에 대표가 거절했을 때) 이 고객이 어떻게 됐나.
+ * 이게 없으면 "진행 중" 이다. 이것으로 1차 미팅 → 계약 전환율을 본다.
+ */
+export type DealOutcomeKind = 'won' | 'hold' | 'lost'
+export type LostReason = 'budget' | 'timing' | 'no_need' | 'competitor' | 'no_response' | 'other'
+export interface DealOutcome {
+  kind: DealOutcomeKind
+  /** 기록 시각 — 이보다 뒤에 잡힌 미팅·새 미팅이 있으면 그쪽이 다음 할 일이다 */
+  at: string
+  /** 보류 — 다시 연락할 날. 그날이 되면 할 일로 올라온다 */
+  followUpAt?: string | null
+  /** 무산 사유 — 고정 목록 (설명 개선용 집계) */
+  reason?: LostReason | null
+  /** 한 줄 메모 (선택) — 개인정보 금지 */
+  note?: string
+  /** 기록한 사람 */
+  by?: string
 }
 
 /** 업체 정보가 어디서 왔는가 */

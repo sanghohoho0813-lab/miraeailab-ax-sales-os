@@ -8,6 +8,7 @@ import type {
   AuditEvent,
   CaseStudy,
   Company,
+  DealOutcome,
   CompanyDeletePreview,
   CompanyProfile,
   CreateCompanyInput,
@@ -48,6 +49,8 @@ function companyFromRow(r: Row): Company {
     pinnedCaseIds: arr(r.pinned_case_ids),
     assignedTo: strOrNull(r.assigned_to),
     fieldSources: obj<Company['fieldSources']>(r.field_sources, {}),
+    // 0007 이 아직 적용되지 않은 DB 면 컬럼 자체가 없다 → undefined (저장할 때도 보내지 않는다)
+    outcome: !('outcome' in r) ? undefined : r.outcome && typeof r.outcome === 'object' ? (r.outcome as DealOutcome) : null,
     archivedAt: strOrNull(r.archived_at),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
@@ -68,6 +71,8 @@ function companyToRow(c: Company): Row {
     memo: c.memo,
     pinned_case_ids: c.pinnedCaseIds ?? [],
     field_sources: c.fieldSources ?? {},
+    // 결과 컬럼(0007)은 읽어 온 적이 있을 때만 보낸다 — 마이그레이션 전 DB 에서 고객 저장 전체가 깨지지 않게
+    ...(c.outcome !== undefined ? { outcome: c.outcome } : {}),
     archived_at: c.archivedAt,
   }
 }

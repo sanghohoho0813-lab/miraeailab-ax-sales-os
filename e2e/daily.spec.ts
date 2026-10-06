@@ -244,6 +244,129 @@ test.describe('하루 업무 흐름', () => {
     await expect(page.getByTestId('strategy-title')).toContainText('멈춘상사')
   })
 
+  test('2차 미팅 → 결과 기록(계약) — 할 일에서 빠지고 "결과" 로, 마스터 전환율에 계약이 잡힌다', async ({ page }, testInfo) => {
+    const tag = testInfo.project.name
+    await loginPartner(page)
+    await prepareCompany(page, '계약상사')
+    const companyPath = new URL(page.url()).pathname
+    await page.getByTestId('start-meeting').click()
+    await answerAll(page)
+    await page.getByTestId('key-quote').fill('견적을 매번 엑셀로 다시 계산합니다.')
+    await page.getByTestId('end-meeting').click()
+    await page.getByTestId('submit-handoff').click()
+    await expect(page.getByTestId('handoff-success')).toBeVisible()
+    await page.evaluate(() => {
+      const list = JSON.parse(localStorage.getItem('axpartner.handoffs') ?? '[]') as { status: string }[]
+      for (const h of list) h.status = 'proposal_ready'
+      localStorage.setItem('axpartner.handoffs', JSON.stringify(list))
+    })
+    const meetingsBefore = await meetingCount(page)
+
+    // 2차 미팅을 "지금" 으로 잡는다 → 오늘 2차 미팅. 1차 질문을 다시 돌리지 않고 결과 기록이 주 버튼
+    await page.goto(companyPath)
+    await page.getByTestId('schedule-open').click()
+    await page.getByTestId('time-now').click()
+    await page.getByTestId('schedule-save').click()
+    const action = page.getByTestId('primary-action')
+    await expect(action).toHaveAttribute('data-stage', 'today')
+    await expect(action).toHaveAttribute('data-round2', 'yes')
+    await expect(page.getByTestId('next-reason')).toContainText('오늘 2차 미팅')
+    await expect(action.getByTestId('outcome-open')).toContainText('결과 기록')
+    await expect(page.getByTestId('round1-result')).toHaveAttribute('href', /\/result$/)
+    await page.screenshot({ path: `${SHOTS}/${tag}-08-round2.png`, fullPage: true })
+
+    // 결과 기록 — 계약 + 메모
+    await action.getByTestId('outcome-open').click()
+    const sheet = page.getByTestId('outcome-sheet')
+    await sheet.getByRole('radio', { name: '계약' }).click()
+    await page.getByTestId('outcome-note').fill('정책자금 + 연구소 패키지')
+    await page.screenshot({ path: `${SHOTS}/${tag}-09-outcome-sheet.png`, fullPage: true })
+    await page.getByTestId('outcome-save').click()
+    await expect(page.getByTestId('toast')).toContainText('계약으로 기록했습니다')
+    await expect(action).toHaveAttribute('data-stage', 'won')
+    await expect(page.getByTestId('outcome-note-view')).toContainText('정책자금 + 연구소 패키지')
+    await expect(page.getByTestId('outcome-open-top')).toContainText('결과 변경')
+    expect(await meetingCount(page)).toBe(meetingsBefore)
+
+    // 홈 — 할 일 없음. 고객 목록 — "결과" 로 모인다
+    await page.goto('/')
+    await expect(page.getByTestId('todo-empty')).toBeVisible()
+    await page.goto('/companies')
+    await expect(page.getByTestId('filter-closed')).toContainText('1')
+    await page.getByTestId('filter-closed').click()
+    await expect(page.getByTestId('company-row')).toHaveCount(1)
+    await expect(page.getByTestId('company-row').first()).toHaveAttribute('data-stage', 'won')
+
+    // 마스터 — 1차 미팅 → 계약 전환 (고객 수 기준)
+    await page.goto('/settings')
+    await page.getByRole('button', { name: '마스터로 전환' }).click()
+    await page.goto('/master/usage')
+    const f = page.getByTestId('funnel')
+    await expect(f).toContainText('1차 미팅 마무리')
+    await expect(f.getByText('1차 미팅 대비 100%')).toHaveCount(3)
+    await expect(page.getByTestId('funnel-closed')).toContainText('보류 0곳 · 무산 0곳')
+    await page.screenshot({ path: `${SHOTS}/${tag}-10-funnel.png`, fullPage: true })
+  })
+
+  test('1차 분석 뒤 거절 → 무산(사유) 으로 할 일에서 내리고, 보류로 바꾸면 재연락일에 "연락하기" 로 돌아온다', async ({ page }, testInfo) => {
+    const tag = testInfo.project.name
+    await loginPartner(page)
+    await prepareCompany(page, '거절상사', { phone: '010-7777-8888' })
+    const companyPath = new URL(page.url()).pathname
+    await page.getByTestId('start-meeting').click()
+    await answerAll(page)
+    await page.getByTestId('key-quote').fill('지금은 여유가 없어요.')
+    await page.getByTestId('end-meeting').click()
+    await expect(page).toHaveURL(/\/result$/)
+
+    // 분석 완료 — 요청 대신 결과를 남길 수 있다. 사유 없이 저장하면 같은 화면에서 고르라고 한다
+    await page.goto(companyPath)
+    const action = page.getByTestId('primary-action')
+    await expect(action).toHaveAttribute('data-stage', 'analyzed')
+    await action.getByTestId('outcome-open').click()
+    const sheet = page.getByTestId('outcome-sheet')
+    await sheet.getByRole('radio', { name: '무산' }).click()
+    await page.getByTestId('outcome-save').click()
+    await expect(page.getByTestId('outcome-error')).toContainText('무산 사유')
+    await sheet.getByRole('radio', { name: '예산 부족' }).click()
+    await page.getByTestId('outcome-save').click()
+    await expect(action).toHaveAttribute('data-stage', 'lost')
+    await expect(page.getByTestId('next-reason')).toContainText('무산 · 예산 부족')
+    await page.goto('/')
+    await expect(page.getByTestId('todo-empty')).toBeVisible()
+
+    // 보류로 바꾼다 — 2주 후 재연락. 그 전에는 조용하다
+    await page.goto(companyPath)
+    await page.getByTestId('outcome-open-top').click()
+    await sheet.getByRole('radio', { name: '보류' }).click()
+    await page.getByTestId('followup-2w').click()
+    await expect(page.getByTestId('outcome-followup')).toContainText('지금 할 일')
+    await page.getByTestId('outcome-save').click()
+    await expect(page.getByTestId('toast')).toContainText('보류로 기록했습니다')
+    await expect(action).toHaveAttribute('data-stage', 'hold')
+    await expect(page.getByTestId('next-reason')).toContainText('재연락')
+
+    // 시간이 흘러 재연락일 — 홈 할 일 "연락하기", 고객 화면 주 버튼은 전화하기
+    await page.evaluate((at) => {
+      const list = JSON.parse(localStorage.getItem('axpartner.companies') ?? '[]') as { outcome?: { followUpAt?: string } }[]
+      for (const c of list) if (c.outcome) c.outcome.followUpAt = at
+      localStorage.setItem('axpartner.companies', JSON.stringify(list))
+    }, daysFromNow(-1))
+    await page.goto('/')
+    const row = page.getByTestId('todo-row').first()
+    await expect(row).toHaveAttribute('data-stage', 'followup')
+    await expect(row.getByTestId('todo-action')).toContainText('연락하기')
+    await page.screenshot({ path: `${SHOTS}/${tag}-11-home-followup.png`, fullPage: true })
+    await row.click()
+    await expect(action).toHaveAttribute('data-stage', 'followup')
+    await expect(page.getByTestId('call')).toHaveAttribute('href', 'tel:01077778888')
+
+    // 결과를 지우면 다시 진행 중 — 분석 완료 고객이니 2차 제안 요청이 할 일로 돌아온다
+    await action.getByTestId('outcome-open').click()
+    await page.getByTestId('outcome-clear').click()
+    await expect(action).toHaveAttribute('data-stage', 'analyzed')
+  })
+
   test('고객 찾기 — 대표자 이름 · 전화번호 뒷자리 · 상태 필터 · 정렬, 다녀와도 보던 목록 그대로', async ({ page }, testInfo) => {
     const tag = testInfo.project.name
     await loginPartner(page)
@@ -265,7 +388,7 @@ test.describe('하루 업무 흐름', () => {
     await expect(page.getByTestId('filter-todo')).toContainText('1')
     await expect(page.getByTestId('filter-planned')).toContainText('2')
     // 칩은 화면 읽기 프로그램에도 "상태" 라디오 묶음으로 남는다(레이아웃용 contents 여도)
-    await expect(page.getByRole('radiogroup', { name: '상태' }).getByRole('radio')).toHaveCount(4)
+    await expect(page.getByRole('radiogroup', { name: '상태' }).getByRole('radio')).toHaveCount(5)
 
     // 대표자 이름으로
     await page.getByTestId('company-search').fill('최민')

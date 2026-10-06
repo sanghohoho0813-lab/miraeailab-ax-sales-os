@@ -1,12 +1,13 @@
 /** MASTER — 사용 데이터: Partner OS 개선용. 미팅 10건 미만이면 패턴을 보여 주지 않는다(개별 성과평가처럼 보이지 않게). */
 import { useEffect, useMemo, useState } from 'react'
 import { useSession } from '../lib/auth'
-import type { CaseStudy, Handoff, Meeting, UsageEvent } from '../types/domain'
+import type { CaseStudy, Company, Handoff, Meeting, UsageEvent } from '../types/domain'
 import { FlatSection, PageTitle, SkeletonList, Stat } from '../components/ui'
 import { QUESTION_BY_ID } from '../content/questions'
 import { PLAYBOOK } from '../content/playbook'
-import { INDUSTRY_LABEL, INDUSTRY_ORDER } from '../content/labels'
+import { INDUSTRY_LABEL, INDUSTRY_ORDER, LOST_REASON_LABEL } from '../content/labels'
 import { SMALL_MIN, fundingScale } from '../engine/caseMatcher'
+import { funnel, rate } from '../engine/funnel'
 
 const MIN_MEETINGS = 10
 
@@ -25,15 +26,19 @@ export default function MasterUsagePage() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [handoffs, setHandoffs] = useState<Handoff[]>([])
   const [cases, setCases] = useState<CaseStudy[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   useEffect(() => {
     document.title = '사용 데이터 · AX Partner OS'
-    void Promise.all([repo.listUsage(user), repo.listMeetings(user), repo.listHandoffs(user), repo.listCases(user)]).then(([u, m, h, c]) => {
+    void Promise.all([repo.listUsage(user), repo.listMeetings(user), repo.listHandoffs(user), repo.listCases(user), repo.listCompanies(user)]).then(([u, m, h, c, cs]) => {
       setUsage(u)
       setMeetings(m)
       setHandoffs(h)
       setCases(c)
+      setCompanies(cs)
     })
   }, [repo, user])
+  /** 1차 미팅 → 계약 — 고객 수 기준, 모든 파트너 합계 */
+  const f = useMemo(() => funnel(companies, meetings, handoffs), [companies, meetings, handoffs])
 
   /**
    * 업종별 사례 커버리지 — 추천 품질의 상한선이다.
@@ -59,11 +64,10 @@ export default function MasterUsagePage() {
     const hard = topCounts(u.filter((e) => e.eventType === 'question_hard').map((e) => String(e.payload.questionId ?? '')))
     const openedCases = topCounts(u.filter((e) => e.eventType === 'case_opened').map((e) => String(e.payload.caseId ?? '')))
     const playbook = topCounts(u.filter((e) => e.eventType === 'playbook_opened').map((e) => String(e.payload.sectionId ?? '')))
-    const submitted = handoffs.filter((h) => h.status !== 'withdrawn').length
     const count = (t: string) => u.filter((e) => e.eventType === t).length
     const intake = { pdfUploaded: count('pdf_uploaded'), pdfConfirmed: count('pdf_confirmed'), pdfFailed: count('pdf_failed'), voice: count('voice_intake_used'), corrected: count('profile_corrected'), duplicates: count('company_duplicate_detected'), strategies: count('strategy_generated') }
-    return { done: done.length, avgMin, avgQ, skipped, hard, openedCases, playbook, submitted, ratio: done.length ? Math.round((submitted / done.length) * 100) : 0, intake }
-  }, [usage, meetings, handoffs])
+    return { done: done.length, avgMin, avgQ, skipped, hard, openedCases, playbook, intake }
+  }, [usage, meetings])
 
   if (!usage) return <SkeletonList rows={3} />
   const qTitle = (id: string) => QUESTION_BY_ID[id]?.title ?? id
@@ -73,12 +77,24 @@ export default function MasterUsagePage() {
   return (
     <div className="mx-auto max-w-[1100px] space-y-8">
       <PageTitle title="사용 데이터" sub="Partner OS 개선용 — 개별 파트너 평가가 아니라 어떤 질문·사례·설명이 현장에서 통하는지 보는 자료입니다." />
-      <div className="grid gap-4 rounded-(--radius-card) border border-line bg-white p-5 sm:grid-cols-4">
+      <div className="grid gap-4 rounded-(--radius-card) border border-line bg-white p-5 sm:grid-cols-3">
         <Stat label="마무리한 미팅" value={stats.done} unit="건" />
         <Stat label="평균 미팅 시간" value={stats.avgMin} unit="분" hint="시작~마무리" />
         <Stat label="평균 질문 수" value={stats.avgQ} unit="개" />
-        <Stat label="미팅 → 2차 제안 요청" value={stats.ratio} unit="%" hint={`${stats.submitted}건 전달`} />
       </div>
+      {/* 돈이 되는 흐름 — 어디서 줄어드는가. 요청률은 여기 한 곳에서만 보여 준다(고객 수 기준) */}
+      <FlatSection title="1차 미팅 → 계약" sub="고객 수 기준 · 모든 파트너 합계 — 비율은 1차 미팅을 마무리한 고객 대비입니다">
+        <div className="grid grid-cols-2 gap-4 rounded-(--radius-card) border border-line bg-white p-5 sm:grid-cols-4" data-testid="funnel">
+          <Stat label="1차 미팅 마무리" value={f.met} unit="곳" />
+          <Stat label="2차 제안 요청" value={f.requested} unit="곳" hint={`1차 미팅 대비 ${rate(f.requested, f.met)}%`} />
+          <Stat label="제안 준비완료" value={f.ready} unit="곳" hint={`1차 미팅 대비 ${rate(f.ready, f.met)}%`} />
+          <Stat label="계약" value={f.won} unit="곳" hint={`1차 미팅 대비 ${rate(f.won, f.met)}%`} tone="accent" />
+        </div>
+        <p className="t-sub mt-3 text-ink-700" data-testid="funnel-closed">
+          보류 <b className="tnum">{f.hold}</b>곳 · 무산 <b className="tnum">{f.lost}</b>곳
+          {f.lostReasons.length > 0 && <> — 무산 사유 {f.lostReasons.map((r) => `${LOST_REASON_LABEL[r.reason]} ${r.count}`).join(' · ')}</>}
+        </p>
+      </FlatSection>
       <FlatSection title="지능형 등록 (PDF · 음성)" sub="미팅 준비에 쓰는 시간을 줄이는지 보는 지표 — 건수만 보여 줍니다">
         <div className="grid gap-4 rounded-(--radius-card) border border-line bg-white p-5 sm:grid-cols-4" data-testid="intake-stats">
           <Stat label="PDF 업로드" value={stats.intake.pdfUploaded} unit="건" hint={`확정 ${stats.intake.pdfConfirmed} · 실패 ${stats.intake.pdfFailed}`} />

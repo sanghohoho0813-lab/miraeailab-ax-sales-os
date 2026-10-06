@@ -25,10 +25,12 @@ const FILTERS: { key: CompanyFilter; label: string }[] = [
   { key: 'todo', label: '할 일' },
   { key: 'planned', label: '예정·준비' },
   { key: 'sent', label: '전달 완료' },
+  { key: 'closed', label: '결과' },
 ]
 const SORTS: { key: CompanySort; label: string }[] = [
-  { key: 'recent', label: '최근 활동순' },
-  { key: 'meeting', label: '미팅 일시순' },
+  // 폰에서 상태 칩과 한 줄에 들어가도록 짧게 — 선택 상자 폭은 가장 긴 항목이 정한다
+  { key: 'recent', label: '최근순' },
+  { key: 'meeting', label: '미팅일순' },
   { key: 'name', label: '이름순' },
 ]
 
@@ -72,7 +74,7 @@ export default function CompaniesPage() {
   const items = useMemo(() => (data ? workItems(data.companies, data.meetings, data.handoffs).map((x) => asViewer(x, user.id)) : []), [data, user.id])
   const matched = useMemo(() => items.map((x) => ({ x, hit: matchCompany(x.company, q) })).filter((r) => r.hit), [items, q])
   const counts = useMemo(() => {
-    const c: Record<CompanyFilter, number> = { all: matched.length, todo: 0, planned: 0, sent: 0 }
+    const c: Record<CompanyFilter, number> = { all: matched.length, todo: 0, planned: 0, sent: 0, closed: 0 }
     for (const r of matched) c[filterOf(r.x)]++
     return c
   }, [matched])
@@ -162,7 +164,7 @@ export default function CompaniesPage() {
                     role="radio"
                     aria-checked={on}
                     onClick={() => setParam('f', f.key, 'all')}
-                    className={`tap inline-flex h-10 items-center gap-1.5 rounded-full border px-4 text-[0.95rem] font-semibold ${on ? 'border-accent-600 bg-accent-50 text-accent-800' : 'border-line-strong bg-white text-ink-700 hover:bg-paper-2'}`}
+                    className={`tap inline-flex h-10 items-center gap-1.5 rounded-full border px-3 text-[0.95rem] font-semibold sm:px-4 ${on ? 'border-accent-600 bg-accent-50 text-accent-800' : 'border-line-strong bg-white text-ink-700 hover:bg-paper-2'}`}
                     data-testid={`filter-${f.key}`}
                   >
                     {f.label}
@@ -224,7 +226,9 @@ function shortMeeting(iso: string): string {
 function CompanyRow({ x, hit, owner, onArchive }: { x: WorkItem; hit: string; owner: string; onArchive: () => void }) {
   const c = x.company
   // 폰에서는 뒤가 잘린다 — 고객을 알아보는 데 쓰는 것(미팅 일시 · 대표자 · 찾은 번호)을 앞에 둔다
-  const sub = [owner ? `담당 ${owner}` : '', c.meetingAt ? shortMeeting(c.meetingAt) : '', c.representativeName ? `${c.representativeName} 대표` : '', hit === 'phone' ? c.phone : '', industryText(c), c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '']
+  // 결과가 기록된 고객은 그 결과("10.20 재연락", "10.5 무산 · 예산 부족")가 미팅 일시보다 중요하다
+  const closed = filterOf(x) === 'closed'
+  const sub = [owner ? `담당 ${owner}` : '', closed ? x.reason : '', !closed && c.meetingAt ? shortMeeting(c.meetingAt) : '', c.representativeName ? `${c.representativeName} 대표` : '', hit === 'phone' ? c.phone : '', industryText(c), c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '']
     .filter(Boolean)
     .join(' · ')
   // 다음 행동이 "전략 보기" 뿐이면 줄을 누르는 것과 같다 — 버튼을 따로 두지 않는다(폰에서 줄 높이가 두 배가 됐다)

@@ -11,13 +11,17 @@
  *   2 제안 준비완료  김상호 대표가 2차 제안을 준비했다 — 2차 미팅을 잡을 차례
  *   3 지난 미팅      일정이 지났는데 기록이 없다 (했는데 안 남겼거나, 미뤄졌거나)
  *   4 오늘 미팅
+ *   5 재연락        보류한 고객의 다시 연락할 날이 됐다
  *   ── 여기까지가 "지금 할 일" ──
- *   5 예정 · 6 준비(일정 미정) · 7 전달 완료(검토 대기)
+ *   6 예정 · 7 준비(일정 미정) · 8 전달 완료(검토 대기) · 9 보류 · 10 계약 · 11 무산
+ *
+ * 2차 미팅 — 2차 제안 요청을 보낸 뒤에 잡힌 미팅. 이때 할 일은 1차 질문을 다시 돌리는 것이 아니라 **결과 기록**이다.
+ * 딜 결과(company.outcome) — 계약 · 보류 · 무산. 결과를 기록한 뒤에 새 미팅이 생기면 그쪽이 다음 할 일이다.
  */
 import type { Company, Handoff, Meeting } from '../types/domain'
-import { HANDOFF_STATUS_LABEL } from '../content/labels'
+import { HANDOFF_STATUS_LABEL, LOST_REASON_LABEL } from '../content/labels'
 
-export type Stage = 'live' | 'analyzed' | 'proposal_ready' | 'overdue' | 'today' | 'upcoming' | 'prep' | 'submitted'
+export type Stage = 'live' | 'analyzed' | 'proposal_ready' | 'overdue' | 'today' | 'followup' | 'upcoming' | 'prep' | 'submitted' | 'hold' | 'won' | 'lost'
 export type Tone = 'neutral' | 'accent' | 'ok' | 'info' | 'warn'
 
 export interface WorkItem {
@@ -39,26 +43,36 @@ export interface WorkItem {
   rank: number
   /** 정렬 기준 시각 (미팅 일시 또는 마지막 활동) */
   at: string | null
+  /** 2차 제안 요청 뒤에 잡힌 미팅인가 — 이때 할 일은 결과 기록이다 */
+  round2: boolean
 }
 
-const STAGE_RANK: Record<Stage, number> = { live: 0, analyzed: 1, proposal_ready: 2, overdue: 3, today: 4, upcoming: 5, prep: 6, submitted: 7 }
+const STAGE_RANK: Record<Stage, number> = { live: 0, analyzed: 1, proposal_ready: 2, overdue: 3, today: 4, followup: 5, upcoming: 6, prep: 7, submitted: 8, hold: 9, won: 10, lost: 11 }
 export const STAGE_LABEL: Record<Stage, string> = {
   live: '미팅 중',
   analyzed: '분석 완료',
   proposal_ready: '제안 준비완료',
   overdue: '지난 미팅',
   today: '오늘 미팅',
+  followup: '재연락',
   upcoming: '예정',
   prep: '준비',
   submitted: '전달 완료',
+  hold: '보류',
+  won: '계약',
+  lost: '무산',
 }
-const STAGE_TONE: Record<Stage, Tone> = { live: 'accent', analyzed: 'info', proposal_ready: 'ok', overdue: 'warn', today: 'accent', upcoming: 'neutral', prep: 'neutral', submitted: 'ok' }
+const STAGE_TONE: Record<Stage, Tone> = { live: 'accent', analyzed: 'info', proposal_ready: 'ok', overdue: 'warn', today: 'accent', followup: 'warn', upcoming: 'neutral', prep: 'neutral', submitted: 'ok', hold: 'neutral', won: 'ok', lost: 'neutral' }
 
 function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 function daysBetween(iso: string, now: Date): number {
   return Math.round((startOfDay(new Date(iso)) - startOfDay(now)) / 86_400_000)
+}
+function md(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}.${d.getDate()}`
 }
 function hhmm(iso: string): string {
   const d = new Date(iso)
@@ -80,23 +94,78 @@ export function workItem(company: Company, meeting: Meeting | null, handoff: Han
   const id = company.id
   const strategy = `/companies/${id}`
   let stage: Stage
+  let label: string | null = null
   let reason = ''
   let next = { to: strategy, label: '전략 보기' }
   let at: string | null = company.meetingAt
+  let round2 = false
 
+  // 결과(계약·보류·무산)는 그 뒤에 미팅 활동이 없을 때만 다음 할 일을 정한다 — 결과 뒤에 새 미팅을 했으면 그쪽이 먼저다
+  const o = company.outcome ?? null
+  const outcomeRules = Boolean(o) && !(meeting && o && meeting.updatedAt > o.at)
+  // 보류 뒤에 미팅 일정을 다시 잡았으면 그 일정이 다음 할 일이다
+  const holdScheduled = Boolean(o && o.kind === 'hold' && company.meetingAt && company.meetingAt > o.at)
   // 전달 뒤에 새 미팅 일정이 잡혔으면 그 일정이 다음 할 일이다 (2차 미팅)
-  const scheduledAfter = meeting && company.meetingAt && (meeting.status === 'submitted') && company.meetingAt > (meeting.endedAt ?? meeting.updatedAt)
+  const scheduledAfter = Boolean(meeting && company.meetingAt && meeting.status === 'submitted' && company.meetingAt > (meeting.endedAt ?? meeting.updatedAt))
 
-  if (meeting && (meeting.status === 'live' || meeting.status === 'draft')) {
+  /** 일정 기준 단계 — 지난 · 오늘 · 예정 (2차 미팅이면 결과 기록으로 이어진다) */
+  const byDate = (meetingAt: string, second: boolean) => {
+    round2 = second
+    const d = daysBetween(meetingAt, now)
+    const what = second ? '2차 미팅' : '미팅'
+    if (d < 0) {
+      stage = 'overdue'
+      if (second) {
+        label = '지난 2차 미팅'
+        reason = `${-d}일 전 2차 미팅 결과가 기록되지 않았습니다`
+        next = { to: `${strategy}?outcome=1`, label: '결과 기록' }
+      } else {
+        reason = `${-d}일 전 미팅이 기록되지 않았습니다 — 기록하거나 일정을 바꾸세요`
+        next = { to: strategy, label: '미팅 기록' }
+      }
+    } else if (d === 0) {
+      stage = 'today'
+      if (second) label = '오늘 2차 미팅'
+      reason = `오늘 ${hhmm(meetingAt)} ${what}`
+      next = { to: strategy, label: second ? '2차 미팅 준비' : '전략 보고 시작' }
+    } else {
+      stage = 'upcoming'
+      if (second) label = '2차 미팅 예정'
+      reason = d === 1 ? `내일 ${hhmm(meetingAt)} ${what}` : `${d}일 후 ${what}`
+    }
+  }
+
+  if (meeting && (meeting.status === 'live' || meeting.status === 'draft') && !outcomeRules) {
     stage = 'live'
     reason = '중단된 미팅입니다 — 기억이 흐려지기 전에 마무리하세요'
     next = { to: `/meetings/${meeting.id}/live`, label: '이어서 진행' }
     at = meeting.updatedAt
-  } else if (meeting && meeting.status === 'analyzed') {
+  } else if (meeting && meeting.status === 'analyzed' && !outcomeRules) {
     stage = 'analyzed'
     reason = handoff?.status === 'withdrawn' ? '철회한 요청입니다 — 고쳐서 다시 보내세요' : '2차 제안 요청을 아직 보내지 않았습니다'
     next = { to: `/meetings/${meeting.id}/result`, label: '2차 제안 요청' }
     at = meeting.endedAt ?? meeting.updatedAt
+  } else if (o && outcomeRules && !holdScheduled) {
+    at = o.at
+    if (o.kind === 'won') {
+      stage = 'won'
+      reason = `${md(o.at)} 계약`
+    } else if (o.kind === 'lost') {
+      stage = 'lost'
+      reason = `${md(o.at)} 무산${o.reason ? ` · ${LOST_REASON_LABEL[o.reason]}` : ''}`
+    } else if (o.followUpAt && daysBetween(o.followUpAt, now) <= 0) {
+      stage = 'followup'
+      const d = -daysBetween(o.followUpAt, now)
+      reason = d === 0 ? '보류 고객 — 오늘 다시 연락할 날입니다' : `보류 고객 — ${d}일 전에 다시 연락하기로 했습니다`
+      next = { to: strategy, label: '연락하기' }
+      at = o.followUpAt
+    } else {
+      stage = 'hold'
+      reason = o.followUpAt ? `${md(o.followUpAt)} 재연락` : '재연락일 없음'
+      at = o.followUpAt ?? o.at
+    }
+  } else if (o && outcomeRules && holdScheduled && company.meetingAt) {
+    byDate(company.meetingAt, false)
   } else if (meeting && meeting.status === 'submitted' && handoff?.status === 'proposal_ready' && !scheduledAfter) {
     stage = 'proposal_ready'
     reason = '2차 제안이 준비됐습니다 — 2차 미팅 일정을 잡으세요'
@@ -113,24 +182,13 @@ export function workItem(company: Company, meeting: Meeting | null, handoff: Han
     reason = '미팅 일시가 아직 없습니다'
     at = company.updatedAt
   } else {
-    const d = daysBetween(company.meetingAt, now)
-    if (d < 0) {
-      stage = 'overdue'
-      reason = `${-d}일 전 미팅이 기록되지 않았습니다 — 기록하거나 일정을 바꾸세요`
-      next = { to: strategy, label: '미팅 기록' }
-    } else if (d === 0) {
-      stage = 'today'
-      reason = `오늘 ${hhmm(company.meetingAt)} 미팅`
-      next = { to: strategy, label: '전략 보고 시작' }
-    } else {
-      stage = 'upcoming'
-      reason = d === 1 ? `내일 ${hhmm(company.meetingAt)} 미팅` : `${d}일 후 미팅`
-    }
+    byDate(company.meetingAt, scheduledAfter)
   }
 
-  const label = stage === 'submitted' && handoff ? (HANDOFF_STATUS_LABEL[handoff.status] ?? STAGE_LABEL.submitted) : STAGE_LABEL[stage]
-  const rank = STAGE_RANK[stage]
-  return { company, meeting, handoff, stage, label, tone: STAGE_TONE[stage], reason, next, todo: rank <= STAGE_RANK.today, rank, at }
+  const finalStage = stage!
+  const finalLabel = label ?? (finalStage === 'submitted' && handoff ? (HANDOFF_STATUS_LABEL[handoff.status] ?? STAGE_LABEL.submitted) : STAGE_LABEL[finalStage])
+  const rank = STAGE_RANK[finalStage]
+  return { company, meeting, handoff, stage: finalStage, label: finalLabel, tone: STAGE_TONE[finalStage], reason, next, todo: rank <= STAGE_RANK.followup, rank, at, round2 }
 }
 
 export function workItems(companies: Company[], meetings: Meeting[], handoffs: Handoff[], now = new Date()): WorkItem[] {
@@ -183,12 +241,14 @@ export function matchCompany(c: Company, query: string): 'name' | 'rep' | 'phone
   return null
 }
 
-export type CompanyFilter = 'all' | 'todo' | 'planned' | 'sent'
+export type CompanyFilter = 'all' | 'todo' | 'planned' | 'sent' | 'closed'
 export type CompanySort = 'recent' | 'meeting' | 'name'
 
 export function filterOf(x: WorkItem): Exclude<CompanyFilter, 'all'> {
   if (x.todo) return 'todo'
   if (x.stage === 'submitted') return 'sent'
+  // 결과를 기록한 고객(계약·보류·무산)은 한곳에 — 보류 고객의 재연락일이 되면 "할 일" 로 옮겨 간다
+  if (x.stage === 'won' || x.stage === 'lost' || x.stage === 'hold') return 'closed'
   return 'planned'
 }
 

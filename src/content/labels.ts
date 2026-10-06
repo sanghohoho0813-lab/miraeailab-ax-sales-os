@@ -1,5 +1,7 @@
 import type {
+  DealOutcomeKind,
   Degree,
+  LostReason,
   EvidenceStatus,
   FundingType,
   Headcount,
@@ -150,6 +152,28 @@ export const HANDOFF_STATUS_LABEL: Record<string, string> = {
   proposal_ready: '제안 준비완료',
   withdrawn: '철회됨',
 }
+
+/** 딜 결과 — 버튼·배지 문구 */
+export const OUTCOME_LABEL: Record<DealOutcomeKind, string> = {
+  won: '계약',
+  hold: '보류',
+  lost: '무산',
+}
+export const OUTCOME_HINT: Record<DealOutcomeKind, string> = {
+  won: '계약했거나 계약하기로 했습니다',
+  hold: '지금은 아니지만 다시 연락할 고객입니다',
+  lost: '진행하지 않기로 했습니다',
+}
+/** 무산 사유 — 고정 목록. 자유 입력이 아니어야 모아서 볼 수 있다 */
+export const LOST_REASON_LABEL: Record<LostReason, string> = {
+  budget: '예산 부족',
+  timing: '시기가 아님',
+  no_need: '필요성 낮음',
+  competitor: '다른 곳과 진행',
+  no_response: '연락 두절',
+  other: '기타',
+}
+export const LOST_REASON_ORDER: LostReason[] = ['budget', 'timing', 'no_need', 'competitor', 'no_response', 'other']
 
 export const MEETING_STATUS_LABEL: Record<string, string> = {
   draft: '미팅 전',

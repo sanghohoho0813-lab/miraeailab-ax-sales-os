@@ -8,13 +8,14 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, ArrowRight, CalendarClock, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
+import { Play, Pencil, ArrowLeft, ArrowRight, CalendarClock, Flag, Phone, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { ScheduleSheet } from '../components/ScheduleSheet'
+import { OutcomeSheet } from '../components/OutcomeSheet'
 import { PICK_LIMIT } from '../engine/caseMatcher'
 import { documentStatus, missingRequired } from '../engine/documents'
 import { latestMeetings, workItem } from '../engine/workStatus'
@@ -61,8 +62,10 @@ export default function CompanyPage() {
   const [enhanced, setEnhanced] = useState<(EnhancedText & { hash: string }) | null>(null)
   const [enhancing, setEnhancing] = useState(false)
   /** 일정 시트 — 홈의 "2차 미팅 일정 잡기" 는 ?schedule=1 로 와서 바로 연다 */
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [params, setParams] = useSearchParams()
+  const [scheduleOpen, setScheduleOpen] = useState(() => params.get('schedule') === '1')
+  /** 결과 시트 — 홈의 "결과 기록" 은 ?outcome=1 로 와서 바로 연다 */
+  const [outcomeOpen, setOutcomeOpen] = useState(() => params.get('outcome') === '1')
 
   useEffect(() => {
     if (!companyId) return
@@ -85,15 +88,16 @@ export default function CompanyPage() {
   }, [companyId, repo, user])
 
   // 홈의 "2차 미팅 일정 잡기" — 고객 화면이 그려지면 시트를 바로 연다. 주소에서는 지워 새로고침해도 다시 열리지 않게
+  // 시트는 주소를 보고 처음부터 열린 채로 시작한다(위 useState). 열고 나면 주소에서 지워 새로고침해도 다시 열리지 않게
   useEffect(() => {
-    if (!company || params.get('schedule') !== '1') return
-    setScheduleOpen(true)
+    if (params.get('schedule') !== '1' && params.get('outcome') !== '1') return
     setParams((cur) => {
       const n = new URLSearchParams(cur)
       n.delete('schedule')
+      n.delete('outcome')
       return n
     }, { replace: true })
-  }, [company, params, setParams])
+  }, [params, setParams])
 
   const profile = useMemo(() => latestProfile(profiles), [profiles])
   const strategy: Strategy | null = useMemo(() => (company && cases.length ? buildStrategy({ company, profile, cases }) : null), [company, profile, cases])
@@ -219,7 +223,9 @@ export default function CompanyPage() {
   const latestHandoff = latest ? (handoffs.filter((h) => h.meetingId === latest.id && !h.archivedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null) : null
   const work = workItem(company, latest, latestHandoff)
   /** 미팅을 시작·이어가는 것이 주 동작인가 — 분석 완료·전달 완료면 주 동작은 따로 있다 */
-  const meetingIsPrimary = work.stage !== 'analyzed' && work.stage !== 'submitted' && work.stage !== 'proposal_ready'
+  const meetingIsPrimary = !work.round2 && (work.stage === 'live' || work.stage === 'overdue' || work.stage === 'today' || work.stage === 'upcoming' || work.stage === 'prep')
+  /** 결과(계약·보류·무산)가 기록된 고객 */
+  const outcomeStage = work.stage === 'won' || work.stage === 'lost' || work.stage === 'hold' || work.stage === 'followup'
 
   async function startMeeting() {
     if (!company || !strategy || busy) return
@@ -253,6 +259,10 @@ export default function CompanyPage() {
           <ArrowLeft aria-hidden="true" className="size-4" /> 고객
         </Link>
         <div className="flex flex-wrap items-center gap-3">
+          {/* 결과는 어느 단계에서든 남길 수 있다 — 1차 미팅 뒤 거절, 연락 두절 등 */}
+          <button type="button" onClick={() => setOutcomeOpen(true)} className="t-sub inline-flex items-center gap-1 font-semibold text-ink-500 hover:text-ink-900" data-testid="outcome-open-top">
+            <Flag aria-hidden="true" className="size-4" /> {company.outcome ? '결과 변경' : '결과 기록'}
+          </button>
           <Link to={`/companies/${company.id}/edit`} className="t-sub inline-flex items-center gap-1 font-semibold text-ink-500 hover:text-ink-900">
             <Pencil aria-hidden="true" className="size-4" /> 정보 수정
           </Link>
@@ -305,8 +315,8 @@ export default function CompanyPage() {
         고객의 단계에 따라 바뀐다. 분석까지 끝난 고객에서 "미팅 시작" 을 누르면 2차 제안 요청 대신 새 미팅이 생기던 함정이 있었다.
         분석 완료 → 2차 제안 요청, 전달 완료 → 요청 상태가 주 동작이고, 새 미팅은 보조 버튼으로 남긴다(2차 미팅).
       */}
-      <section className="reveal" data-testid="primary-action" data-stage={work.stage}>
-        {work.stage === 'overdue' && (
+      <section className="reveal" data-testid="primary-action" data-stage={work.stage} data-round2={work.round2 ? 'yes' : 'no'}>
+        {work.stage === 'overdue' && !work.round2 && (
           <p className="t-sub mb-3 flex flex-wrap items-center gap-x-2 rounded-(--radius-control) bg-warn-50 px-4 py-2.5 font-semibold text-warn-700" data-testid="overdue-note">
             <span>{work.reason}</span>
             <button type="button" onClick={() => setScheduleOpen(true)} className="font-bold underline underline-offset-4" data-testid="schedule-open">
@@ -334,9 +344,19 @@ export default function CompanyPage() {
           </>
         ) : (
           <>
-            <p className="t-body mb-3 font-semibold text-ink-700" data-testid="next-reason">
-              <Badge tone={work.tone}>{work.label}</Badge> <span className="ml-1">{work.reason}</span>
+            <p className="t-body mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-ink-700" data-testid="next-reason">
+              <Badge tone={work.tone}>{work.label}</Badge> <span>{work.reason}</span>
+              {work.round2 && (
+                <button type="button" onClick={() => setScheduleOpen(true)} className="t-sub font-bold text-accent-700 underline underline-offset-4" data-testid="schedule-open">
+                  일정 변경
+                </button>
+              )}
             </p>
+            {outcomeStage && company.outcome?.note && (
+              <p className="t-sub -mt-1 mb-3 text-ink-500" data-testid="outcome-note-view">
+                메모 · {company.outcome.note}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               {work.stage === 'analyzed' && (
                 <Link to={work.next.to} className={`${CTA} ${CTA_PRIMARY}`} data-testid="next-action">
@@ -354,7 +374,36 @@ export default function CompanyPage() {
                   <CalendarClock aria-hidden="true" className="size-5" /> 다음 미팅 일정 잡기
                 </button>
               )}
-              {work.handoff && work.stage !== 'analyzed' && (
+              {/* 2차 미팅 — 1차 질문을 다시 돌리지 않는다. 1차 분석을 펴 놓고 이야기하고, 끝나면 결과를 남긴다 */}
+              {work.round2 && (
+                <>
+                  <button type="button" onClick={() => setOutcomeOpen(true)} className={`${CTA} ${work.stage === 'upcoming' ? CTA_OUTLINE : CTA_PRIMARY}`} data-testid="outcome-open">
+                    <Flag aria-hidden="true" className="size-5" /> 결과 기록
+                  </button>
+                  {work.meeting && (
+                    <Link to={`/meetings/${work.meeting.id}/result`} className={`${CTA} ${CTA_OUTLINE}`} data-testid="round1-result">
+                      1차 분석 보기 <ArrowRight aria-hidden="true" className="size-5" />
+                    </Link>
+                  )}
+                </>
+              )}
+              {/* 보류 고객의 재연락일 — 전화가 먼저다 */}
+              {work.stage === 'followup' && company.phone && (
+                <a href={`tel:${company.phone.replace(/[^\d+]/g, '')}`} className={`${CTA} ${CTA_PRIMARY}`} data-testid="call">
+                  <Phone aria-hidden="true" className="size-5" /> 전화하기
+                </a>
+              )}
+              {(work.stage === 'followup' || work.stage === 'hold') && (
+                <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${work.stage === 'followup' && !company.phone ? CTA_PRIMARY : CTA_OUTLINE}`} data-testid="schedule-open">
+                  <CalendarClock aria-hidden="true" className="size-5" /> 미팅 일정 잡기
+                </button>
+              )}
+              {outcomeStage && (
+                <button type="button" onClick={() => setOutcomeOpen(true)} className={`${CTA} ${CTA_OUTLINE}`} data-testid="outcome-open">
+                  <Flag aria-hidden="true" className="size-5" /> 결과 변경
+                </button>
+              )}
+              {work.handoff && (work.stage === 'submitted' || work.stage === 'proposal_ready') && (
                 <Link to={`/handoffs/${work.handoff.id}`} className={`${CTA} ${CTA_OUTLINE}`} data-testid="next-action">
                   요청 상태 <ArrowRight aria-hidden="true" className="size-5" />
                 </Link>
@@ -362,16 +411,23 @@ export default function CompanyPage() {
               <Button variant="ghost" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
                 <Play aria-hidden="true" className="size-4" /> {liveMeeting ? '미팅 이어가기' : '새 미팅 시작'}
               </Button>
+              {/* 1차 미팅 뒤 대표가 거절했으면 — 요청 대신 결과를 남겨 할 일에서 내린다 */}
+              {work.stage === 'analyzed' && (
+                <Button variant="ghost" onClick={() => setOutcomeOpen(true)} data-testid="outcome-open">
+                  <Flag aria-hidden="true" className="size-4" /> 요청 안 함 · 결과 기록
+                </Button>
+              )}
             </div>
           </>
         )}
       </section>
+      <OutcomeSheet company={company} open={outcomeOpen} onClose={() => setOutcomeOpen(false)} onSaved={setCompany} />
       <ScheduleSheet
         company={company}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
         onSaved={setCompany}
-        title={work.stage === 'proposal_ready' ? '2차 미팅 일정' : '미팅 일정'}
+        title={work.stage === 'proposal_ready' || work.round2 ? '2차 미팅 일정' : '미팅 일정'}
         allowClear={work.stage === 'overdue' || work.stage === 'today' || work.stage === 'upcoming'}
       />
 

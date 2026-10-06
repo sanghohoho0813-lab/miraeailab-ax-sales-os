@@ -5,7 +5,7 @@
  * 저장하면 업무 상태 엔진이 그 일정을 다음 할 일로 올린다(오늘이면 "오늘 미팅", 아니면 "다가오는 미팅").
  * [일정 미정으로] 는 보류·무산된 건이 "지난 미팅" 으로 할 일 큐를 계속 막지 않게 하는 출구다 — 고객 기록은 그대로 남는다.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSession } from '../lib/auth'
 import type { Company } from '../types/domain'
 import { Button, Sheet, useToast } from './ui'
@@ -37,15 +37,19 @@ export function ScheduleSheet({
   /** 잡혀 있던 일정을 비울 수 있는가 — 지난 미팅·예정 미팅을 보류할 때. 2차 미팅을 처음 잡을 때는 비울 일정이 없다 */
   allowClear?: boolean
 }) {
+  // 시트를 열 때마다 폼을 새로 만든다 — 어제 열어 둔 값이 남지 않고 지금 기준으로 다시 고른다
+  return (
+    <Sheet open={open} onClose={onClose} title={`${company.name} · ${title}`} testId="schedule-sheet">
+      <ScheduleForm company={company} onClose={onClose} onSaved={onSaved} allowClear={allowClear} />
+    </Sheet>
+  )
+}
+
+function ScheduleForm({ company, onClose, onSaved, allowClear }: { company: Company; onClose: () => void; onSaved: (c: Company) => void; allowClear: boolean }) {
   const { user, repo } = useSession()
   const toast = useToast()
   const [value, setValue] = useState<MeetingTimeValue>(() => initialValue(company))
   const [busy, setBusy] = useState(false)
-
-  // 열 때마다 지금 기준으로 다시 고른다 (어제 열어 둔 값이 남지 않게)
-  useEffect(() => {
-    if (open) setValue(initialValue(company))
-  }, [open, company])
 
   async function save(meetingAt: string | null) {
     setBusy(true)
@@ -64,7 +68,7 @@ export function ScheduleSheet({
   const past = company.meetingAt && new Date(company.meetingAt).getTime() <= Date.now() ? company.meetingAt : null
 
   return (
-    <Sheet open={open} onClose={onClose} title={`${company.name} · ${title}`} testId="schedule-sheet">
+    <>
       {past && <p className="t-sub mb-3 text-ink-500">지난 일정 {formatDate(past, true)} ({relativeDay(past)})</p>}
       <MeetingTimePicker value={value} onChange={setValue} allowNone={false} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -77,6 +81,6 @@ export function ScheduleSheet({
           </button>
         )}
       </div>
-    </Sheet>
+    </>
   )
 }

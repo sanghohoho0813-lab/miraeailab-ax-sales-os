@@ -205,3 +205,73 @@ describe('마스터 홈 — 누구의 일인가', () => {
     expect(asViewer(x, 'master').stage).toBe('live')
   })
 })
+
+describe('2차 미팅 · 딜 결과', () => {
+  const sent = () => meeting({ status: 'submitted', endedAt: iso(2026, 10, 1), updatedAt: iso(2026, 10, 1) })
+
+  it('2차 제안 요청 뒤에 잡힌 미팅은 2차 미팅 — 오늘이면 준비, 지나면 결과 기록이 할 일', () => {
+    const today = workItem(company({ meetingAt: iso(2026, 10, 6, 15) }), sent(), handoff({ status: 'proposal_ready' }), NOW)
+    expect(today.stage).toBe('today')
+    expect(today.round2).toBe(true)
+    expect(today.label).toBe('오늘 2차 미팅')
+    expect(today.next.label).toBe('2차 미팅 준비')
+    const past = workItem(company({ meetingAt: iso(2026, 10, 4, 15) }), sent(), handoff({ status: 'proposal_ready' }), NOW)
+    expect(past.stage).toBe('overdue')
+    expect(past.reason).toBe('2일 전 2차 미팅 결과가 기록되지 않았습니다')
+    expect(past.next).toEqual({ to: '/companies/c1?outcome=1', label: '결과 기록' })
+    // 1차 미팅은 2차가 아니다
+    expect(workItem(company({ meetingAt: iso(2026, 10, 6, 15) }), null, null, NOW).round2).toBe(false)
+  })
+
+  it('계약·무산은 할 일이 아니고 "결과" 로 모인다', () => {
+    const won = workItem(company({ outcome: { kind: 'won', at: iso(2026, 10, 5) } }), sent(), handoff({ status: 'proposal_ready' }), NOW)
+    expect(won.stage).toBe('won')
+    expect(won.reason).toBe('10.5 계약')
+    expect(won.todo).toBe(false)
+    expect(filterOf(won)).toBe('closed')
+    const lost = workItem(company({ outcome: { kind: 'lost', at: iso(2026, 10, 5), reason: 'budget' } }), sent(), null, NOW)
+    expect(lost.reason).toBe('10.5 무산 · 예산 부족')
+  })
+
+  it('1차 분석 뒤 대표가 거절했으면 — 무산을 기록하면 "2차 제안 요청" 할 일에서 빠진다', () => {
+    const analyzed = meeting({ status: 'analyzed', endedAt: iso(2026, 10, 2), updatedAt: iso(2026, 10, 2) })
+    expect(workItem(company(), analyzed, null, NOW).stage).toBe('analyzed')
+    const x = workItem(company({ outcome: { kind: 'lost', at: iso(2026, 10, 3), reason: 'no_need' } }), analyzed, null, NOW)
+    expect(x.stage).toBe('lost')
+    expect(x.todo).toBe(false)
+  })
+
+  it('보류 — 재연락일 전에는 조용히, 그날이 되면 할 일 "연락하기"', () => {
+    const later = workItem(company({ outcome: { kind: 'hold', at: iso(2026, 10, 1), followUpAt: iso(2026, 10, 20) } }), sent(), null, NOW)
+    expect(later.stage).toBe('hold')
+    expect(later.reason).toBe('10.20 재연락')
+    expect(later.todo).toBe(false)
+    expect(filterOf(later)).toBe('closed')
+    const due = workItem(company({ outcome: { kind: 'hold', at: iso(2026, 10, 2), followUpAt: iso(2026, 10, 6, 8) } }), sent(), null, NOW)
+    expect(due.stage).toBe('followup')
+    expect(due.todo).toBe(true)
+    expect(due.next.label).toBe('연락하기')
+    expect(due.reason).toBe('보류 고객 — 오늘 다시 연락할 날입니다')
+    const late = workItem(company({ outcome: { kind: 'hold', at: iso(2026, 10, 2), followUpAt: iso(2026, 10, 3) } }), sent(), null, NOW)
+    expect(late.reason).toBe('보류 고객 — 3일 전에 다시 연락하기로 했습니다')
+  })
+
+  it('보류 뒤에 미팅을 다시 잡으면 그 일정이, 새 미팅을 시작하면 그 미팅이 다음 할 일이다', () => {
+    const hold = { kind: 'hold' as const, at: iso(2026, 10, 2), followUpAt: iso(2026, 10, 20) }
+    const scheduled = workItem(company({ outcome: hold, meetingAt: iso(2026, 10, 6, 15) }), sent(), null, NOW)
+    expect(scheduled.stage).toBe('today')
+    const restarted = workItem(company({ outcome: hold }), meeting({ status: 'live', updatedAt: iso(2026, 10, 5) }), null, NOW)
+    expect(restarted.stage).toBe('live')
+    // 계약 뒤에 잡힌 일정은 계약을 덮지 않는다 (계약은 계약이다)
+    const won = workItem(company({ outcome: { kind: 'won', at: iso(2026, 10, 2) }, meetingAt: iso(2026, 10, 9, 10) }), sent(), null, NOW)
+    expect(won.stage).toBe('won')
+  })
+
+  it('할 일 순서 — 오늘 미팅 다음이 재연락', () => {
+    const items = [
+      workItem(company({ id: 'f', outcome: { kind: 'hold', at: iso(2026, 9, 1), followUpAt: iso(2026, 10, 6, 8) } }), null, null, NOW),
+      workItem(company({ id: 't', meetingAt: iso(2026, 10, 6, 15) }), null, null, NOW),
+    ]
+    expect(todoItems(items).map((x) => x.stage)).toEqual(['today', 'followup'])
+  })
+})

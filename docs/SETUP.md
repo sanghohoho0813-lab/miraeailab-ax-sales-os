@@ -16,6 +16,7 @@
    4. `supabase/migrations/20260922000004_partner_companies_pinned_cases.sql` — 업체별 "미팅에 사용할 사례" 컬럼
    5. `supabase/migrations/20260922000005_partner_ops_hardening.sql` — 운영 안정화: 고객 휴지통/복구/안전 영구삭제 RPC(직접 DELETE 는 RLS 로 차단), 전달 요청 철회↔운영 OS ignored 양방향, 미팅 취소/삭제 규칙, 파트너 호칭·수정 RPC·마지막 마스터 보호 트리거, 담당 재배정(assigned_to), 감사 로그(partner_audit_events), 사례 검수 RPC·last_verified_at. **운영 OS 패치 브랜치(`claude/partner-os-handoff-v1`)의 `withdrawn` 라벨 커밋을 먼저 배포한다.**
    6. `supabase/migrations/20260922000006_partner_intake_profiles.sql` — 지능형 등록: `partner_companies.field_sources`(항목별 입력 출처), `partner_company_profiles`(PDF·음성 구조화 스냅샷 + 근거, 이력 보존, 직접 DELETE 차단, 주민번호 패턴 DB 거부 트리거, 감사), 사용 이벤트 9종 추가. **PDF 원본은 저장하지 않는다(Storage 버킷 없음).**
+   7. `supabase/migrations/20260922000007_partner_deal_outcome.sql` — 딜 결과: `partner_companies.outcome`(계약·보류·무산 · 재연락일 · 무산 사유 고정 목록 · 메모). 형식 검사와 주민번호 패턴 거부는 DB check, 쓰기 권한은 기존 고객 수정 정책(담당 파트너·마스터) 그대로.
 3. **사례 검수** — 마스터가 실제 사례 화면에서 `검수 필요` 행을 열어 검수 후 `검수 완료` 로 바꾸면 파트너 기본 추천에 들어간다. DB 가 비어 있으면 앱이 코드 시드(`src/content/research-cases.json`)를 읽기 전용으로 보여 준다.
 4. **Partner OS 배포 (Vercel)** — 새 프로젝트, 환경변수:
    ```

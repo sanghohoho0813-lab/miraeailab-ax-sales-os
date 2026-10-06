@@ -16,17 +16,19 @@ import { formatDate, relativeDay } from '../lib/util'
 import { Badge, Button, DangerModal, EmptyState, FlatSection, PageTitle, SkeletonList, useToast } from '../components/ui'
 import { asViewer, byUrgency, ownerOf, workItems, type WorkItem } from '../engine/workStatus'
 
-type Group = 'todo' | 'upcoming' | 'prep' | 'sent'
+type Group = 'todo' | 'upcoming' | 'prep' | 'sent' | 'closed'
 const GROUPS: { key: Group; title: string; sub: string }[] = [
-  { key: 'todo', title: '지금 할 일', sub: '급한 것부터 — 진행 중 · 2차 제안 요청 · 지난 미팅 · 오늘' },
+  { key: 'todo', title: '지금 할 일', sub: '급한 것부터 — 진행 중 · 2차 제안 요청 · 지난 미팅 · 오늘 · 재연락' },
   { key: 'upcoming', title: '다가오는 미팅', sub: '날짜순' },
   { key: 'prep', title: '일정 미정', sub: '미팅 일시를 넣으면 다가오는 미팅으로 올라옵니다' },
   { key: 'sent', title: '전달 완료', sub: '김상호 대표가 검토 중이거나 끝난 건' },
+  { key: 'closed', title: '결과', sub: '계약 · 보류 · 무산 — 보류 고객은 다시 연락할 날에 할 일로 올라옵니다' },
 ]
 function groupOf(x: WorkItem): Group {
   if (x.todo) return 'todo'
   if (x.stage === 'upcoming') return 'upcoming'
   if (x.stage === 'submitted') return 'sent'
+  if (x.stage === 'won' || x.stage === 'hold' || x.stage === 'lost') return 'closed'
   return 'prep'
 }
 
@@ -53,12 +55,13 @@ export default function MeetingsPage() {
   }, [repo, user])
 
   const groups = useMemo(() => {
-    const g: Record<Group, WorkItem[]> = { todo: [], upcoming: [], prep: [], sent: [] }
+    const g: Record<Group, WorkItem[]> = { todo: [], upcoming: [], prep: [], sent: [], closed: [] }
     for (const x of data ? workItems(data.companies, data.meetings, data.handoffs) : []) g[groupOf(x)].push(asViewer(x, user.id))
     g.todo.sort(byUrgency)
     g.upcoming.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
     g.prep.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
     g.sent.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    g.closed.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
     return g
   }, [data, user.id])
   const ownerName = (c: Company): string => (ownerOf(c) === user.id ? '' : (members.find((m) => m.profileId === ownerOf(c))?.displayName ?? ''))
@@ -147,7 +150,7 @@ function MeetingRow({ x, owner, onDelete }: { x: WorkItem; owner: string; onDele
           </Link>
           <Badge tone={x.tone}>{x.label}</Badge>
         </span>
-        <p className={`t-sub ${x.todo ? 'text-ink-700' : 'truncate text-ink-500'}`}>{owner && <span className="font-semibold text-ink-700">{owner} · </span>}{x.todo ? x.reason : [industry, c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '', when].filter(Boolean).join(' · ')}</p>
+        <p className={`t-sub ${x.todo ? 'text-ink-700' : 'truncate text-ink-500'}`}>{owner && <span className="font-semibold text-ink-700">{owner} · </span>}{x.todo || groupOf(x) === 'closed' ? x.reason : [industry, c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '', when].filter(Boolean).join(' · ')}</p>
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {draft && (

@@ -579,5 +579,45 @@ do $$ declare n int; begin
   raise notice 'T15 지능형 등록 이벤트 OK';
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 16. (0007) 딜 결과 — 담당 파트너가 기록, 남은 못 바꾼다, 형식·사유는 고정, 주민번호 거부, 마스터는 전체 집계
+-- ---------------------------------------------------------------------
+do $$ declare cid uuid := (select v from ids where k='company'); n int; begin
+  perform pg_temp.as_user((select v from fx where k='partner1'));
+  update public.partner_companies set outcome = '{"kind":"lost","at":"2026-10-06T01:00:00Z","reason":"budget","note":"내년 예산 확정 후"}'::jsonb where id = cid;
+  assert (select outcome->>'reason' from public.partner_companies where id = cid) = 'budget', '결과 저장';
+  update public.partner_companies set outcome = '{"kind":"hold","at":"2026-10-06T01:00:00Z","followUpAt":"2026-11-01T01:00:00Z"}'::jsonb where id = cid;
+  assert (select outcome->>'kind' from public.partner_companies where id = cid) = 'hold', '보류로 변경';
+  -- 모르는 결과 · 모르는 사유는 거부
+  begin
+    update public.partner_companies set outcome = '{"kind":"maybe","at":"2026-10-06T01:00:00Z"}'::jsonb where id = cid;
+    raise exception '모르는 결과가 저장되면 안 된다';
+  exception when check_violation then null; end;
+  begin
+    update public.partner_companies set outcome = '{"kind":"lost","at":"2026-10-06T01:00:00Z","reason":"대표가 싫어함"}'::jsonb where id = cid;
+    raise exception '고정 목록 밖 사유가 저장되면 안 된다';
+  exception when check_violation then null; end;
+  -- 메모에 주민번호 패턴은 거부
+  begin
+    update public.partner_companies set outcome = '{"kind":"won","at":"2026-10-06T01:00:00Z","note":"대표 901231-1234567"}'::jsonb where id = cid;
+    raise exception '주민번호가 저장되면 안 된다';
+  exception when check_violation then null; end;
+  perform pg_temp.as_super();
+
+  -- 다른 파트너는 남의 고객 결과를 바꾸지 못한다 (보이지도 않는다 → 0건)
+  perform pg_temp.as_user((select v from fx where k='partner2'));
+  update public.partner_companies set outcome = '{"kind":"won","at":"2026-10-06T01:00:00Z"}'::jsonb where id = cid;
+  perform pg_temp.as_super();
+  assert (select outcome->>'kind' from public.partner_companies where id = cid) = 'hold', '남이 결과를 바꾸면 안 된다';
+
+  -- 마스터는 전체 결과를 집계할 수 있다 · 결과를 지우면 다시 진행 중
+  perform pg_temp.as_user((select v from fx where k='master1'));
+  select count(*) into n from public.partner_companies where outcome->>'kind' = 'hold'; assert n >= 1, '마스터 집계';
+  update public.partner_companies set outcome = null where id = cid;
+  assert (select outcome from public.partner_companies where id = cid) is null, '결과 취소';
+  perform pg_temp.as_super();
+  raise notice 'T16 딜 결과 OK';
+end $$;
+
 select 'PARTNER OS CONTRACT: ALL ASSERTIONS PASSED' as result;
 rollback;

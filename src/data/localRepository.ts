@@ -163,8 +163,11 @@ export class LocalRepository implements Repository {
     if (cur && !isMaster(user) && (cur.consultantId !== company.consultantId || (cur.assignedTo ?? null) !== (company.assignedTo ?? null))) {
       throw new Error('담당 파트너 변경은 마스터만 할 수 있습니다.')
     }
+    // 결과 메모에도 개인정보는 남기지 않는다 (DB 0007 check 와 같은 규칙)
+    if (company.outcome) assertNoResidentNumber(JSON.stringify(company.outcome))
     const next = { ...company, updatedAt: nowIso() }
     write(KEYS.companies, this.companies().map((c) => (c.id === next.id ? next : c)))
+    if ((cur?.outcome?.kind ?? null) !== (next.outcome?.kind ?? null)) this.audit(user, 'company_outcome', 'company', next.id, { name: next.name, outcome: next.outcome?.kind ?? null })
     return next
   }
   async archiveCompany(user: CurrentUser, id: string): Promise<void> {
