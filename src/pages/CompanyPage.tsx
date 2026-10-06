@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, ArrowRight, CalendarClock, Flag, Phone, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
+import { Play, Pencil, ArrowLeft, ArrowRight, CalendarClock, Flag, MessageSquareText, Phone, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
@@ -16,6 +16,9 @@ import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { ScheduleSheet } from '../components/ScheduleSheet'
 import { OutcomeSheet } from '../components/OutcomeSheet'
+import { MessageSheet } from '../components/MessageSheet'
+import type { MessageContext } from '../engine/messages'
+import { MESSAGE_LABEL, type MessageKind } from '../content/messages'
 import { PICK_LIMIT } from '../engine/caseMatcher'
 import { documentStatus, missingRequired } from '../engine/documents'
 import { latestMeetings, workItem } from '../engine/workStatus'
@@ -66,6 +69,11 @@ export default function CompanyPage() {
   const [scheduleOpen, setScheduleOpen] = useState(() => params.get('schedule') === '1')
   /** 결과 시트 — 홈의 "결과 기록" 은 ?outcome=1 로 와서 바로 연다 */
   const [outcomeOpen, setOutcomeOpen] = useState(() => params.get('outcome') === '1')
+  /** 문자 시트 — ?message=thanks 처럼 문자 종류를 정해서 열 수도 있다 (미팅 결과 화면의 [감사 문자]) */
+  const [message, setMessage] = useState<{ kind?: MessageKind } | null>(() => {
+    const k = params.get('message')
+    return k ? { kind: k in MESSAGE_LABEL ? (k as MessageKind) : undefined } : null
+  })
 
   useEffect(() => {
     if (!companyId) return
@@ -90,11 +98,12 @@ export default function CompanyPage() {
   // 홈의 "2차 미팅 일정 잡기" — 고객 화면이 그려지면 시트를 바로 연다. 주소에서는 지워 새로고침해도 다시 열리지 않게
   // 시트는 주소를 보고 처음부터 열린 채로 시작한다(위 useState). 열고 나면 주소에서 지워 새로고침해도 다시 열리지 않게
   useEffect(() => {
-    if (params.get('schedule') !== '1' && params.get('outcome') !== '1') return
+    if (params.get('schedule') !== '1' && params.get('outcome') !== '1' && !params.get('message')) return
     setParams((cur) => {
       const n = new URLSearchParams(cur)
       n.delete('schedule')
       n.delete('outcome')
+      n.delete('message')
       return n
     }, { replace: true })
   }, [params, setParams])
@@ -224,6 +233,11 @@ export default function CompanyPage() {
   const work = workItem(company, latest, latestHandoff)
   /** 미팅을 시작·이어가는 것이 주 동작인가 — 분석 완료·전달 완료면 주 동작은 따로 있다 */
   const meetingIsPrimary = !work.round2 && (work.stage === 'live' || work.stage === 'overdue' || work.stage === 'today' || work.stage === 'upcoming' || work.stage === 'prep')
+  /** 2차 미팅 준비 — 1차 분석에서 꺼낸다 */
+  const a = work.round2 ? work.meeting?.analysis : null
+  const recap = a
+    ? { pains: [...a.painPoints].sort((x, y) => x.rank - y.rank).slice(0, 3), quote: work.meeting?.keyQuote?.trim() ?? '', scope: `LEVEL ${a.scopeLevel} · ${a.scopeLabel}` }
+    : null
   /** 결과(계약·보류·무산)가 기록된 고객 */
   const outcomeStage = work.stage === 'won' || work.stage === 'lost' || work.stage === 'hold' || work.stage === 'followup'
 
@@ -235,13 +249,21 @@ export default function CompanyPage() {
       const prefilled: Record<string, Answer> = {}
       for (const p of strategy.prefilled) prefilled[p.question.id] = { questionId: p.question.id, value: p.value, source: 'diagnosis', at: nowIso() }
       const m = await repo.createMeeting(user, company.id, strategy.questionIds, prefilled)
+      // 미팅 일시 = 실제로 만난 시각. 예정보다 일찍 시작했는데 예정 시각이 남아 있으면,
+      // 2차 제안 요청 뒤에 "앞으로 잡힌 미팅(2차 미팅)" 으로 잘못 읽힌다. 지난 일정을 늦게 기록하는 경우는 그대로 둔다
+      if (!company.meetingAt || company.meetingAt > nowIso()) {
+        await repo.updateCompany(user, { ...company, meetingAt: nowIso() }).catch(() => undefined)
+      }
       navigate(`/meetings/${m.id}/live`)
     } finally {
       setBusy(false)
     }
   }
 
-  const missingDocs = missingRequired(documentStatus(profiles))
+  const docStatus = documentStatus(profiles)
+  const missingDocs = missingRequired(docStatus)
+  /** 대표님께 문자 — 보내는 사람은 지금 로그인한 사람 */
+  const messageCtx: MessageContext = { company, partner: { name: user.name, title: user.title }, work, missing: docStatus.filter((d) => !d.have).map((d) => d.key) }
   const d = company.diagnosis
   const pinned = (company.pinnedCaseIds ?? []).map((id) => cases.find((c) => c.id === id)).filter((c): c is CaseStudy => Boolean(c))
   const recs = strategy.cases.filter((m) => !pinned.some((p) => p.id === m.caseStudy.id))
@@ -279,6 +301,11 @@ export default function CompanyPage() {
         // 업종·근로자 수는 여기서도 바로 고칠 수 있어야 한다 — 빈 칸을 보여 주기만 하고 길을 막지 않는다
         fillable={['industry', 'headcount']}
         onFill={() => navigate(`/companies/${company.id}/edit`)}
+        action={
+          <button type="button" onClick={() => setMessage({})} className="tap inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-white px-3.5 text-[0.95rem] font-semibold text-ink-700 hover:bg-paper-2" data-testid="message-open">
+            <MessageSquareText aria-hidden="true" className="size-4" /> 대표님께 문자
+          </button>
+        }
         title={
           <span data-testid="strategy-title">
             {company.name}
@@ -287,7 +314,33 @@ export default function CompanyPage() {
         }
       />
 
-      {/* 2) 오늘은 이 3가지만 */}
+      {/*
+        2) 오늘은 이 3가지만 — 2차 미팅이면 1차 발굴 질문 대신 "1차에서 들은 것".
+        2차 미팅은 제안을 설명하는 자리다. 대표가 1차에 한 말과 핵심 문제를 다시 꺼내 이야기를 시작한다.
+      */}
+      {work.round2 && recap ? (
+        <section className="reveal" data-testid="round1-recap">
+          <h2 className="t-section">1차에서 들은 것</h2>
+          <ol className={`mt-3 divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white ${recap.pains.length === 3 ? 'md:grid md:grid-cols-3 md:divide-x md:divide-y-0' : recap.pains.length === 2 ? 'md:grid md:grid-cols-2 md:divide-x md:divide-y-0' : ''}`} aria-label="1차에서 들은 핵심 문제">
+            {recap.pains.map((p, i) => (
+              <li key={p.area} className="flex items-center gap-3 px-4 py-3 md:flex-col md:items-start md:gap-2 md:py-4" data-testid="recap-item">
+                <span className="tnum inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-600 text-[0.9rem] font-black text-white" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <p className="text-[1.08rem] font-bold leading-snug break-keep">{p.title}</p>
+              </li>
+            ))}
+          </ol>
+          {recap.quote && (
+            <blockquote className="t-body mt-3 rounded-r-(--radius-control) border-l-4 border-accent-600 bg-white px-4 py-3 font-semibold" data-testid="recap-quote">
+              “{recap.quote}”
+            </blockquote>
+          )}
+          <p className="t-sub mt-2 text-ink-700">
+            추천 범위 · {recap.scope}
+          </p>
+        </section>
+      ) : (
       <section className="reveal">
         <h2 className="t-section">오늘은 이 3가지만 확인하세요</h2>
         <ol className="mt-3 divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white md:grid md:grid-cols-3 md:divide-y-0 md:divide-x" aria-label="오늘 확인할 것">
@@ -309,6 +362,7 @@ export default function CompanyPage() {
           )}
         </p>
       </section>
+      )}
 
       {/*
         3) 주 동작 — 사례보다 위.
@@ -369,6 +423,12 @@ export default function CompanyPage() {
                   <CalendarClock aria-hidden="true" className="size-5" /> 2차 미팅 일정 잡기
                 </button>
               )}
+              {/* 일정을 잡으려면 먼저 대표님께 연락 — 2차 미팅 제안 문자가 준비돼 있다 */}
+              {work.stage === 'proposal_ready' && (
+                <button type="button" onClick={() => setMessage({ kind: 'proposal' })} className={`${CTA} ${CTA_OUTLINE}`} data-testid="message-cta">
+                  <MessageSquareText aria-hidden="true" className="size-5" /> 제안 문자 보내기
+                </button>
+              )}
               {work.stage === 'submitted' && (
                 <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${CTA_OUTLINE}`} data-testid="schedule-open">
                   <CalendarClock aria-hidden="true" className="size-5" /> 다음 미팅 일정 잡기
@@ -393,12 +453,18 @@ export default function CompanyPage() {
                   <Phone aria-hidden="true" className="size-5" /> 전화하기
                 </a>
               )}
+              {work.stage === 'followup' && (
+                <button type="button" onClick={() => setMessage({ kind: 'followup' })} className={`${CTA} ${company.phone ? CTA_OUTLINE : CTA_PRIMARY}`} data-testid="message-cta">
+                  <MessageSquareText aria-hidden="true" className="size-5" /> 안부 문자
+                </button>
+              )}
               {(work.stage === 'followup' || work.stage === 'hold') && (
-                <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${work.stage === 'followup' && !company.phone ? CTA_PRIMARY : CTA_OUTLINE}`} data-testid="schedule-open">
+                <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${CTA_OUTLINE}`} data-testid="schedule-open">
                   <CalendarClock aria-hidden="true" className="size-5" /> 미팅 일정 잡기
                 </button>
               )}
-              {outcomeStage && (
+              {/* 보류·재연락은 위쪽 [결과 변경]으로 충분하다 — 여기는 연락이 먼저 */}
+              {(work.stage === 'won' || work.stage === 'lost') && (
                 <button type="button" onClick={() => setOutcomeOpen(true)} className={`${CTA} ${CTA_OUTLINE}`} data-testid="outcome-open">
                   <Flag aria-hidden="true" className="size-5" /> 결과 변경
                 </button>
@@ -422,6 +488,7 @@ export default function CompanyPage() {
         )}
       </section>
       <OutcomeSheet company={company} open={outcomeOpen} onClose={() => setOutcomeOpen(false)} onSaved={setCompany} />
+      <MessageSheet open={Boolean(message)} onClose={() => setMessage(null)} ctx={messageCtx} initialKind={message?.kind} />
       <ScheduleSheet
         company={company}
         open={scheduleOpen}

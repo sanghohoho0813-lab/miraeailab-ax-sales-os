@@ -105,8 +105,13 @@ export function workItem(company: Company, meeting: Meeting | null, handoff: Han
   const outcomeRules = Boolean(o) && !(meeting && o && meeting.updatedAt > o.at)
   // 보류 뒤에 미팅 일정을 다시 잡았으면 그 일정이 다음 할 일이다
   const holdScheduled = Boolean(o && o.kind === 'hold' && company.meetingAt && company.meetingAt > o.at)
-  // 전달 뒤에 새 미팅 일정이 잡혔으면 그 일정이 다음 할 일이다 (2차 미팅)
-  const scheduledAfter = Boolean(meeting && company.meetingAt && meeting.status === 'submitted' && company.meetingAt > (meeting.endedAt ?? meeting.updatedAt))
+  // 전달 뒤에 새 미팅 일정이 잡혔으면 그 일정이 다음 할 일이다 (2차 미팅).
+  // 단, 1차 미팅과 같은 날의 일정은 1차 미팅 자신이다 — 예정보다 일찍 시작하면 예정 시각이 미팅이 끝난 뒤로 남는다.
+  // (2차 제안은 김상호 대표의 검토를 거치므로 같은 날 2차 미팅은 없다)
+  const firstDay = meeting ? (meeting.startedAt ?? meeting.createdAt) : null
+  const scheduledAfter = Boolean(
+    meeting && company.meetingAt && meeting.status === 'submitted' && company.meetingAt > (meeting.endedAt ?? meeting.updatedAt) && !(firstDay && startOfDay(new Date(firstDay)) === startOfDay(new Date(company.meetingAt))),
+  )
 
   /** 일정 기준 단계 — 지난 · 오늘 · 예정 (2차 미팅이면 결과 기록으로 이어진다) */
   const byDate = (meetingAt: string, second: boolean) => {

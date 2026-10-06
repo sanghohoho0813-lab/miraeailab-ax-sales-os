@@ -52,8 +52,9 @@ export default function HandoffPage() {
   const stepIdx = withdrawn ? -1 : Math.max(0, STEPS.indexOf(h.status))
   const opsUrl = getDataModeConfig().opsOsUrl
   const canWithdraw = !withdrawn && h.status !== 'proposal_ready'
-  // 전달 뒤에 잡힌 미팅 = 2차 미팅
-  const nextMeeting = company?.meetingAt && h.submittedAt && company.meetingAt > h.submittedAt ? company.meetingAt : null
+  // 전달 뒤에 잡힌 미팅 = 2차 미팅. 1차 미팅과 같은 날 일정은 1차 미팅 자신이다 (업무 상태 엔진과 같은 규칙)
+  const sameDayAsFirst = Boolean(company?.meetingAt && p.meetingDate && new Date(company.meetingAt).toDateString() === new Date(p.meetingDate).toDateString())
+  const nextMeeting = company?.meetingAt && h.submittedAt && company.meetingAt > h.submittedAt && !sameDayAsFirst ? company.meetingAt : null
   const ready = h.status === 'proposal_ready'
   const mine = Boolean(company && ownerOf(company) === user.id)
 

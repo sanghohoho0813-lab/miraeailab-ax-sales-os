@@ -274,4 +274,14 @@ describe('2차 미팅 · 딜 결과', () => {
     ]
     expect(todoItems(items).map((x) => x.stage)).toEqual(['today', 'followup'])
   })
+
+  it('1차 미팅을 예정보다 일찍 했으면 남은 예정 시각은 2차 미팅이 아니다 — 같은 날 일정은 1차 미팅 자신', () => {
+    const early = meeting({ status: 'submitted', startedAt: iso(2026, 10, 6, 8), endedAt: iso(2026, 10, 6, 9), updatedAt: iso(2026, 10, 6, 9) })
+    const x = workItem(company({ meetingAt: iso(2026, 10, 6, 15) }), early, handoff({ status: 'submitted' }), NOW)
+    expect(x.round2).toBe(false)
+    expect(x.stage).toBe('submitted')
+    // 다른 날 잡힌 일정은 2차 미팅
+    const y = workItem(company({ meetingAt: iso(2026, 10, 9, 15) }), early, handoff({ status: 'proposal_ready' }), NOW)
+    expect(y.round2).toBe(true)
+  })
 })

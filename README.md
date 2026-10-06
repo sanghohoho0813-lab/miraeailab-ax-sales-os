@@ -49,7 +49,7 @@ npm run test:e2e            # Playwright — 모바일/태블릿/PC 에서 핵�
 - [docs/SIMPLIFY_REPORT.md](docs/SIMPLIFY_REPORT.md) — 단순화(보이는 정보 절반 이하) · 동종업계 사례 매칭 · LIVE 우선 · 화면 이동 스크롤 보고
 - [docs/INTAKE_REPORT.md](docs/INTAKE_REPORT.md) — 지능형 등록(PDF 파이프라인 · 음성 · 미팅 일시 · 프로필 스키마 · 사례 매칭 V2 · Strategy Autopilot) 완료 보고
 - [docs/HARDENING_REPORT.md](docs/HARDENING_REPORT.md) — 운영 안정화(휴지통·철회 계약·파트너 수정·반응형·LIVE 저장) 보고
-- [docs/DAILY_REPORT.md](docs/DAILY_REPORT.md) — 실사용 고도화(업무 상태 엔진 · 홈 "지금 할 일" · 고객 통합 검색·필터·정렬 · 단계별 주 버튼 · 2차 미팅 일정 · 마스터 홈 · 결과 기록·전환율) 보고
+- [docs/DAILY_REPORT.md](docs/DAILY_REPORT.md) — 실사용 고도화(업무 상태 엔진 · 홈 "지금 할 일" · 고객 통합 검색·필터·정렬 · 단계별 주 버튼 · 2차 미팅 일정 · 마스터 홈 · 결과 기록·전환율 · 대표님 문자) 보고
 
 ## 구조
 

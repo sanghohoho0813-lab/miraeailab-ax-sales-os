@@ -4,7 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Printer, RefreshCw, Send, Pencil, CheckCircle2, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react'
+import { Printer, RefreshCw, Send, Pencil, CheckCircle2, ArrowLeft, ChevronDown, ChevronUp, MessageSquareText } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { CaseStudy, Company, Handoff, Meeting, QuestionArea } from '../types/domain'
 import { AccentStrip, Badge, Button, EvidenceBadge, FlatSection, Insight, LevelBadge, Section, SkeletonList, useToast } from '../components/ui'
@@ -181,6 +181,14 @@ export default function MeetingResultPage() {
                 전달 내용 · 상태 보기
               </Link>
             </div>
+            {/* 미팅 직후가 감사 문자를 보내기 가장 좋은 때 — 미팅에서 나온 문제를 넣은 문자가 준비돼 있다 */}
+            <Link
+              to={`/companies/${company.id}?message=thanks`}
+              className="btn mt-4 inline-flex h-12 items-center gap-2 rounded-(--radius-control) border border-line-strong bg-white px-4 font-semibold text-ink-900 hover:bg-paper-2"
+              data-testid="thanks-message-link"
+            >
+              <MessageSquareText aria-hidden="true" className="size-5" /> 대표님께 감사 문자
+            </Link>
           </div>
         ) : (
           <div>

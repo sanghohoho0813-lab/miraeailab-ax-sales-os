@@ -260,10 +260,23 @@ test.describe('하루 업무 흐름', () => {
       for (const h of list) h.status = 'proposal_ready'
       localStorage.setItem('axpartner.handoffs', JSON.stringify(list))
     })
+    // 1차 미팅은 사흘 전에 했다 (같은 날 2차 미팅은 없다 — 같은 날 일정은 1차 미팅 자신으로 본다)
+    await page.evaluate((at) => {
+      const list = JSON.parse(localStorage.getItem('axpartner.meetings') ?? '[]') as Record<string, string>[]
+      for (const m of list) Object.assign(m, { startedAt: at, endedAt: at, updatedAt: at })
+      localStorage.setItem('axpartner.meetings', JSON.stringify(list))
+    }, daysFromNow(-3))
+    await setMeetingAt(page, '계약상사', daysFromNow(-3))
     const meetingsBefore = await meetingCount(page)
 
-    // 2차 미팅을 "지금" 으로 잡는다 → 오늘 2차 미팅. 1차 질문을 다시 돌리지 않고 결과 기록이 주 버튼
+    // 제안 준비완료 — 일정을 잡으려면 먼저 연락. 2차 미팅 제안 문자가 준비돼 있다
     await page.goto(companyPath)
+    await page.getByTestId('message-cta').click()
+    await expect(page.getByTestId('message-kind-proposal')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('message-text')).toHaveValue(/회사에 맞는 방향을 정리했습니다/)
+    await page.keyboard.press('Escape')
+
+    // 2차 미팅을 "지금" 으로 잡는다 → 오늘 2차 미팅. 1차 질문을 다시 돌리지 않고 결과 기록이 주 버튼
     await page.getByTestId('schedule-open').click()
     await page.getByTestId('time-now').click()
     await page.getByTestId('schedule-save').click()
@@ -273,6 +286,11 @@ test.describe('하루 업무 흐름', () => {
     await expect(page.getByTestId('next-reason')).toContainText('오늘 2차 미팅')
     await expect(action.getByTestId('outcome-open')).toContainText('결과 기록')
     await expect(page.getByTestId('round1-result')).toHaveAttribute('href', /\/result$/)
+    // 1차 발굴 질문 대신 "1차에서 들은 것" — 핵심 문제 · 대표가 한 말 · 추천 범위
+    await expect(page.getByTestId('round1-recap')).toBeVisible()
+    await expect(page.getByTestId('focus-item')).toHaveCount(0)
+    expect(await page.getByTestId('recap-item').count()).toBeGreaterThanOrEqual(1)
+    await expect(page.getByTestId('recap-quote')).toContainText('견적을 매번 엑셀로 다시 계산합니다.')
     await page.screenshot({ path: `${SHOTS}/${tag}-08-round2.png`, fullPage: true })
 
     // 결과 기록 — 계약 + 메모
@@ -361,10 +379,70 @@ test.describe('하루 업무 흐름', () => {
     await expect(action).toHaveAttribute('data-stage', 'followup')
     await expect(page.getByTestId('call')).toHaveAttribute('href', 'tel:01077778888')
 
+    // 재연락일에는 안부 문자도 준비돼 있다
+    await page.getByTestId('message-cta').click()
+    await expect(page.getByTestId('message-kind-followup')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('message-text')).toHaveValue(/안부 겸 연락드립니다/)
+    await page.keyboard.press('Escape')
+
     // 결과를 지우면 다시 진행 중 — 분석 완료 고객이니 2차 제안 요청이 할 일로 돌아온다
-    await action.getByTestId('outcome-open').click()
+    await page.getByTestId('outcome-open-top').click()
     await page.getByTestId('outcome-clear').click()
     await expect(action).toHaveAttribute('data-stage', 'analyzed')
+  })
+
+  test('대표님께 문자 — 미팅 확인 · 서류 요청 · 감사 인사가 상황에 맞게 채워지고, 문자 앱으로 바로 보내거나 복사한다', async ({ page, context }, testInfo) => {
+    const tag = testInfo.project.name
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await loginPartner(page)
+    await prepareCompany(page, '문자상사', { rep: '박영호', phone: '010-2468-1357', withDate: true })
+    const companyPath = new URL(page.url()).pathname
+
+    // 오늘 미팅 — 미팅 확인 문자가 먼저
+    await page.getByTestId('message-open').click()
+    await expect(page.getByTestId('message-kind-confirm')).toHaveAttribute('aria-checked', 'true')
+    const text = page.getByTestId('message-text')
+    await expect(text).toHaveValue(/^박영호 대표님, 안녕하세요\. 미래AI랩 곽주환 팀장입니다\./)
+    await expect(text).toHaveValue(/미팅 일정 확인차 연락드립니다/)
+    await expect(text).toHaveValue(/따로 준비하실 것은 없습니다/)
+
+    // 아직 받은 서류가 없다 — 서류 요청 문자. 개인정보는 가리라고 먼저 말한다
+    await page.getByTestId('message-kind-documents').click()
+    await expect(text).toHaveValue(/1\. 사업자등록증/)
+    await expect(text).toHaveValue(/주민등록번호 뒷자리는 가리고/)
+    await expect(text).not.toHaveValue(/크레탑/)
+    await page.screenshot({ path: `${SHOTS}/${tag}-12-message.png`, fullPage: true })
+
+    // 문자 앱 링크 — 번호와 본문이 채워져 있다
+    const href = (await page.getByTestId('message-sms').getAttribute('href')) ?? ''
+    expect(href.startsWith('sms:01024681357?&body=')).toBe(true)
+    expect(decodeURIComponent(href.split('&body=')[1])).toBe(await text.inputValue())
+
+    // 고친 문장도 주의 표현 검사를 거친다
+    await text.fill(`${await text.inputValue()}\n정책자금 무조건 됩니다.`)
+    await expect(page.getByTestId('message-guard')).toContainText('표현 수정 권장')
+
+    // 복사
+    await page.getByTestId('message-kind-confirm').click()
+    await expect(page.getByTestId('message-guard')).toHaveCount(0)
+    await page.getByTestId('message-copy').click()
+    await expect(page.getByTestId('toast')).toContainText('복사했습니다')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await text.inputValue())
+    await page.keyboard.press('Escape')
+
+    // 미팅을 마치고 2차 제안 요청까지 — 결과 화면에서 감사 문자로 바로
+    await page.getByTestId('start-meeting').click()
+    await answerAll(page)
+    await page.getByTestId('key-quote').fill('같은 내용을 장부와 엑셀에 두 번 적습니다.')
+    await page.getByTestId('end-meeting').click()
+    await page.getByTestId('submit-handoff').click()
+    await page.getByTestId('thanks-message-link').click()
+    await expect(page.getByTestId('message-sheet')).toBeVisible()
+    await expect(page.getByTestId('message-kind-thanks')).toHaveAttribute('aria-checked', 'true')
+    await expect(text).toHaveValue(/오늘 귀한 시간 내주셔서 감사합니다/)
+    await expect(text).toHaveValue(/부분( 등)?을 중심으로/)
+    expect(new URL(page.url()).pathname).toBe(companyPath)
+    expect(new URL(page.url()).search).toBe('')
   })
 
   test('고객 찾기 — 대표자 이름 · 전화번호 뒷자리 · 상태 필터 · 정렬, 다녀와도 보던 목록 그대로', async ({ page }, testInfo) => {
