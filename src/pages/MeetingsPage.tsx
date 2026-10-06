@@ -9,12 +9,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Company, Handoff, Meeting } from '../types/domain'
+import type { Company, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { HEADCOUNT_LABEL, INDUSTRY_LABEL } from '../content/labels'
 import { displayIndustry } from '../content/industryText'
 import { formatDate, relativeDay } from '../lib/util'
 import { Badge, Button, DangerModal, EmptyState, FlatSection, PageTitle, SkeletonList, useToast } from '../components/ui'
-import { byUrgency, workItems, type WorkItem } from '../engine/workStatus'
+import { asViewer, byUrgency, ownerOf, workItems, type WorkItem } from '../engine/workStatus'
 
 type Group = 'todo' | 'upcoming' | 'prep' | 'sent'
 const GROUPS: { key: Group; title: string; sub: string }[] = [
@@ -37,6 +37,8 @@ export default function MeetingsPage() {
   const [failed, setFailed] = useState(false)
   const [del, setDel] = useState<WorkItem | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 마스터는 모든 파트너의 미팅을 본다 — 줄마다 담당을 붙인다 */
+  const [members, setMembers] = useState<PartnerMember[]>([])
 
   useEffect(() => {
     document.title = '미팅 · AX Partner OS'
@@ -44,6 +46,7 @@ export default function MeetingsPage() {
     Promise.all([repo.listCompanies(user), repo.listMeetings(user), repo.listHandoffs(user)])
       .then(([companies, meetings, handoffs]) => alive && setData({ companies, meetings, handoffs }))
       .catch(() => alive && setFailed(true))
+    if (user.role === 'master') void repo.listMembers(user).then((ms) => alive && setMembers(ms)).catch(() => undefined)
     return () => {
       alive = false
     }
@@ -51,13 +54,14 @@ export default function MeetingsPage() {
 
   const groups = useMemo(() => {
     const g: Record<Group, WorkItem[]> = { todo: [], upcoming: [], prep: [], sent: [] }
-    for (const x of data ? workItems(data.companies, data.meetings, data.handoffs) : []) g[groupOf(x)].push(x)
+    for (const x of data ? workItems(data.companies, data.meetings, data.handoffs) : []) g[groupOf(x)].push(asViewer(x, user.id))
     g.todo.sort(byUrgency)
     g.upcoming.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
     g.prep.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
     g.sent.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
     return g
-  }, [data])
+  }, [data, user.id])
+  const ownerName = (c: Company): string => (ownerOf(c) === user.id ? '' : (members.find((m) => m.profileId === ownerOf(c))?.displayName ?? ''))
 
   async function deleteDraft() {
     const m = del?.meeting
@@ -108,7 +112,7 @@ export default function MeetingsPage() {
           <FlatSection key={g.key} title={g.title} sub={g.sub}>
             <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white" data-testid={`meeting-group-${g.key}`}>
               {groups[g.key].map((x) => (
-                <MeetingRow key={x.company.id} x={x} onDelete={() => setDel(x)} />
+                <MeetingRow key={x.company.id} x={x} owner={ownerName(x.company)} onDelete={() => setDel(x)} />
               ))}
             </ul>
           </FlatSection>
@@ -128,11 +132,12 @@ export default function MeetingsPage() {
   )
 }
 
-function MeetingRow({ x, onDelete }: { x: WorkItem; onDelete: () => void }) {
+function MeetingRow({ x, owner, onDelete }: { x: WorkItem; owner: string; onDelete: () => void }) {
   const c = x.company
   const industry = c.industryNote ? displayIndustry(c.industryNote) : c.industry === 'other' ? '업종 미확인' : INDUSTRY_LABEL[c.industry]
   const when = x.stage === 'upcoming' || x.stage === 'today' || x.stage === 'overdue' ? (c.meetingAt ? `${formatDate(c.meetingAt, true)} (${relativeDay(c.meetingAt)})` : '') : ''
-  const draft = x.meeting?.status === 'draft'
+  // 남의 초안은 지우지 않는다 — 담당 파트너가 정리한다
+  const draft = x.meeting?.status === 'draft' && !owner
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5" data-testid="meeting-row" data-stage={x.stage}>
       <div className="min-w-0 flex-1 basis-[14rem]">
@@ -142,7 +147,7 @@ function MeetingRow({ x, onDelete }: { x: WorkItem; onDelete: () => void }) {
           </Link>
           <Badge tone={x.tone}>{x.label}</Badge>
         </span>
-        <p className={`t-sub ${x.todo ? 'text-ink-700' : 'truncate text-ink-500'}`}>{x.todo ? x.reason : [industry, c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '', when].filter(Boolean).join(' · ')}</p>
+        <p className={`t-sub ${x.todo ? 'text-ink-700' : 'truncate text-ink-500'}`}>{owner && <span className="font-semibold text-ink-700">{owner} · </span>}{x.todo ? x.reason : [industry, c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '', when].filter(Boolean).join(' · ')}</p>
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {draft && (
@@ -152,7 +157,7 @@ function MeetingRow({ x, onDelete }: { x: WorkItem; onDelete: () => void }) {
         )}
         <Link
           to={x.next.to}
-          className={`btn inline-flex h-10 items-center rounded-(--radius-control) px-3 text-[0.92rem] font-semibold ${x.todo && x.rank <= 1 ? 'border border-accent-600 bg-accent-600 text-white hover:bg-accent-700' : 'border border-line-strong bg-white text-ink-900 hover:bg-paper-2'}`}
+          className={`btn inline-flex h-10 items-center rounded-(--radius-control) px-3 text-[0.92rem] font-semibold ${x.todo && x.rank <= 1 && !owner ? 'border border-accent-600 bg-accent-600 text-white hover:bg-accent-700' : 'border border-line-strong bg-white text-ink-900 hover:bg-paper-2'}`}
           data-testid="meeting-next"
         >
           {x.next.label}

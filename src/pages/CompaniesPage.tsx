@@ -12,13 +12,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Plus, Search, Trash2, X } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Company, Handoff, Meeting } from '../types/domain'
+import type { Company, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { Button, EmptyState, PageTitle, Badge, SkeletonList, TextInput, useToast } from '../components/ui'
 import { INDUSTRY_LABEL, HEADCOUNT_LABEL } from '../content/labels'
 import { displayIndustry } from '../content/industryText'
 import { josa } from '../content/korean'
 import { relativeDay } from '../lib/util'
-import { filterOf, matchCompany, sortItems, workItems, type CompanyFilter, type CompanySort, type WorkItem } from '../engine/workStatus'
+import { asViewer, filterOf, matchCompany, ownerOf, sortItems, workItems, type CompanyFilter, type CompanySort, type WorkItem } from '../engine/workStatus'
 
 const FILTERS: { key: CompanyFilter; label: string }[] = [
   { key: 'all', label: '전체' },
@@ -43,6 +43,8 @@ export default function CompaniesPage() {
   const [params, setParams] = useSearchParams()
   const [data, setData] = useState<{ companies: Company[]; meetings: Meeting[]; handoffs: Handoff[] } | null>(null)
   const [failed, setFailed] = useState(false)
+  /** 마스터는 모든 파트너의 고객을 본다 — 줄마다 담당을 붙인다 */
+  const [members, setMembers] = useState<PartnerMember[]>([])
 
   const q = params.get('q') ?? ''
   const filter = (FILTERS.some((f) => f.key === params.get('f')) ? params.get('f') : 'all') as CompanyFilter
@@ -61,12 +63,13 @@ export default function CompaniesPage() {
     Promise.all([repo.listCompanies(user), repo.listMeetings(user), repo.listHandoffs(user)])
       .then(([companies, meetings, handoffs]) => alive && setData({ companies, meetings, handoffs }))
       .catch(() => alive && setFailed(true))
+    if (user.role === 'master') void repo.listMembers(user).then((ms) => alive && setMembers(ms)).catch(() => undefined)
     return () => {
       alive = false
     }
   }, [repo, user])
 
-  const items = useMemo(() => (data ? workItems(data.companies, data.meetings, data.handoffs) : []), [data])
+  const items = useMemo(() => (data ? workItems(data.companies, data.meetings, data.handoffs).map((x) => asViewer(x, user.id)) : []), [data, user.id])
   const matched = useMemo(() => items.map((x) => ({ x, hit: matchCompany(x.company, q) })).filter((r) => r.hit), [items, q])
   const counts = useMemo(() => {
     const c: Record<CompanyFilter, number> = { all: matched.length, todo: 0, planned: 0, sent: 0 }
@@ -100,6 +103,10 @@ export default function CompaniesPage() {
   }
 
   const total = data?.companies.length ?? 0
+  const ownerName = (c: Company): string => {
+    if (user.role !== 'master' || ownerOf(c) === user.id) return ''
+    return members.find((m) => m.profileId === ownerOf(c))?.displayName ?? ''
+  }
 
   return (
     <div className="mx-auto max-w-[1100px]">
@@ -200,7 +207,7 @@ export default function CompaniesPage() {
       ) : (
         <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white" data-testid="company-list">
           {list.map(({ x, hit }) => (
-            <CompanyRow key={x.company.id} x={x} hit={hit} onArchive={() => void archive(x.company)} />
+            <CompanyRow key={x.company.id} x={x} hit={hit} owner={ownerName(x.company)} onArchive={() => void archive(x.company)} />
           ))}
         </ul>
       ))}
@@ -214,10 +221,10 @@ function shortMeeting(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : `미팅 ${d.getMonth() + 1}.${d.getDate()} (${relativeDay(iso)})`
 }
 
-function CompanyRow({ x, hit, onArchive }: { x: WorkItem; hit: string; onArchive: () => void }) {
+function CompanyRow({ x, hit, owner, onArchive }: { x: WorkItem; hit: string; owner: string; onArchive: () => void }) {
   const c = x.company
   // 폰에서는 뒤가 잘린다 — 고객을 알아보는 데 쓰는 것(미팅 일시 · 대표자 · 찾은 번호)을 앞에 둔다
-  const sub = [c.meetingAt ? shortMeeting(c.meetingAt) : '', c.representativeName ? `${c.representativeName} 대표` : '', hit === 'phone' ? c.phone : '', industryText(c), c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '']
+  const sub = [owner ? `담당 ${owner}` : '', c.meetingAt ? shortMeeting(c.meetingAt) : '', c.representativeName ? `${c.representativeName} 대표` : '', hit === 'phone' ? c.phone : '', industryText(c), c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '']
     .filter(Boolean)
     .join(' · ')
   // 다음 행동이 "전략 보기" 뿐이면 줄을 누르는 것과 같다 — 버튼을 따로 두지 않는다(폰에서 줄 높이가 두 배가 됐다)
@@ -236,7 +243,7 @@ function CompanyRow({ x, hit, onArchive }: { x: WorkItem; hit: string; onArchive
         {showNext && (
           <Link
             to={x.next.to}
-            className={`btn inline-flex h-10 items-center gap-1 rounded-(--radius-control) px-3 text-[0.92rem] font-semibold ${x.todo && x.rank <= 1 ? 'border border-accent-600 bg-accent-600 text-white hover:bg-accent-700' : 'border border-line-strong bg-white text-ink-900 hover:bg-paper-2'}`}
+            className={`btn inline-flex h-10 items-center gap-1 rounded-(--radius-control) px-3 text-[0.92rem] font-semibold ${x.todo && x.rank <= 1 && !owner ? 'border border-accent-600 bg-accent-600 text-white hover:bg-accent-700' : 'border border-line-strong bg-white text-ink-900 hover:bg-paper-2'}`}
             data-testid="company-next"
           >
             {x.next.label} <ArrowRight aria-hidden="true" className="size-4" />

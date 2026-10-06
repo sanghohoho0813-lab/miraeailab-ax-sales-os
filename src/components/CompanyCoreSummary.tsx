@@ -10,6 +10,7 @@
  * 빈 칸은 "미확인" 으로 보여 주고, onFill 이 있으면 그 자리에서 바로 채울 수 있게 한다.
  */
 import type { ReactNode } from 'react'
+import { Phone } from 'lucide-react'
 import type { Company, CompanyProfile } from '../types/domain'
 import { coreSummary } from '../engine/profile'
 
@@ -31,7 +32,7 @@ export function CompanyCoreSummary({
   onFill,
   fillable,
 }: {
-  company: Pick<Company, 'name' | 'industry' | 'industryNote' | 'headcount' | 'representativeName'>
+  company: Pick<Company, 'name' | 'industry' | 'industryNote' | 'headcount' | 'representativeName'> & { phone?: string }
   profile: CompanyProfile | null
   /** 회사명 대신 쓸 제목 (기본은 회사명) */
   title?: ReactNode
@@ -53,9 +54,16 @@ export function CompanyCoreSummary({
           <h2 className={compact ? 'text-[1.25rem] font-black leading-tight' : 'text-[1.5rem] font-black leading-tight sm:text-[1.7rem]'} data-testid="core-name">
             {title ?? company.name}
           </h2>
-          {c.representativeName && (
-            <p className="t-sub mt-0.5 text-ink-500" data-testid="core-rep">
-              {c.representativeName} 대표
+          {(c.representativeName || company.phone) && (
+            <p className="t-sub mt-0.5 flex flex-wrap items-center gap-x-2 text-ink-500" data-testid="core-rep">
+              {c.representativeName && <span>{c.representativeName} 대표</span>}
+              {/* 미팅 전 확인 전화 — 폰에서는 눌러서 바로 건다 */}
+              {company.phone && (
+                <a href={`tel:${company.phone.replace(/[^\d+]/g, '')}`} className="tnum inline-flex items-center gap-1 font-semibold text-accent-700 hover:underline" data-testid="core-phone">
+                  <Phone aria-hidden="true" className="size-3.5" />
+                  {company.phone}
+                </a>
+              )}
             </p>
           )}
         </div>

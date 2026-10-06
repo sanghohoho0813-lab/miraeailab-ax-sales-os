@@ -1,13 +1,15 @@
 /** 2차 제안 요청 — 상태(전달 완료 → 검토중 → 2차 제안 준비중 → 제안 준비완료) + 전달된 구조화 데이터. 파트너는 본인 건만, 마스터는 전체. */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Archive, CheckCircle2, ExternalLink, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowLeft, Archive, CalendarClock, CheckCircle2, ExternalLink, RotateCcw, Undo2 } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Handoff } from '../types/domain'
+import type { Company, Handoff } from '../types/domain'
 import { Badge, Button, DangerModal, Disclosure, EvidenceBadge, FlatSection, LevelBadge, Section, SkeletonList, TextArea, useToast } from '../components/ui'
 import { AREA_LABEL, HANDOFF_STATUS_LABEL, HEADCOUNT_LABEL, INDUSTRY_LABEL, INTEREST_LABEL, LEVEL_KO, TRADE_LABEL, VALUE_AREA_LABEL, VALUE_AREA_ORDER } from '../content/labels'
 import { getDataModeConfig } from '../data/dataMode'
-import { formatDate } from '../lib/util'
+import { formatDate, relativeDay } from '../lib/util'
+import { ScheduleSheet } from '../components/ScheduleSheet'
+import { ownerOf } from '../engine/workStatus'
 
 const STEPS: Handoff['status'][] = ['submitted', 'received', 'reviewing', 'proposal_ready']
 const STEP_DESC: Record<string, string> = {
@@ -25,11 +27,22 @@ export default function HandoffPage() {
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  /** 고객 — 2차 미팅 일정을 여기서 바로 잡는다 */
+  const [company, setCompany] = useState<Company | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
 
   useEffect(() => {
     if (!handoffId) return
-    repo.getHandoff(user, handoffId).then(setH)
+    let alive = true
+    repo.getHandoff(user, handoffId).then((x) => {
+      if (!alive) return
+      setH(x)
+      if (x) void repo.getCompany(user, x.companyId).then((c) => alive && setCompany(c)).catch(() => undefined)
+    })
     document.title = '2차 제안 요청 · AX Partner OS'
+    return () => {
+      alive = false
+    }
   }, [handoffId, repo, user])
 
   if (h === undefined) return <SkeletonList rows={2} />
@@ -39,6 +52,10 @@ export default function HandoffPage() {
   const stepIdx = withdrawn ? -1 : Math.max(0, STEPS.indexOf(h.status))
   const opsUrl = getDataModeConfig().opsOsUrl
   const canWithdraw = !withdrawn && h.status !== 'proposal_ready'
+  // 전달 뒤에 잡힌 미팅 = 2차 미팅
+  const nextMeeting = company?.meetingAt && h.submittedAt && company.meetingAt > h.submittedAt ? company.meetingAt : null
+  const ready = h.status === 'proposal_ready'
+  const mine = Boolean(company && ownerOf(company) === user.id)
 
   async function withdraw() {
     if (!h) return
@@ -94,6 +111,24 @@ export default function HandoffPage() {
           {h.archivedAt && ' · 보관됨'}
         </p>
         {withdrawn && h.withdrawReason && <p className="t-sub mt-1 text-ink-700">사유: {h.withdrawReason}</p>}
+        {/* 다음 행동 — 제안이 준비되면 2차 미팅 일정. 이미 잡혀 있으면 일시를 보여 주고 바꿀 수 있게 */}
+        {!withdrawn && company && (mine || nextMeeting) && (
+          <div className="mt-4 flex flex-wrap items-center gap-3" data-testid="handoff-next">
+            {nextMeeting ? (
+              <p className="t-body font-bold text-ok-700" data-testid="handoff-next-meeting">
+                2차 미팅 {formatDate(nextMeeting, true)} ({relativeDay(nextMeeting)})
+              </p>
+            ) : ready && mine ? (
+              <p className="t-body font-bold text-ink-900">2차 제안이 준비됐습니다 — 대표님과 2차 미팅 일정을 잡으세요.</p>
+            ) : null}
+            {/* 일정은 담당 파트너가 잡는다 — 마스터가 검토하러 들어와서 남의 일정을 바꾸지 않게 */}
+            {mine && (
+              <Button variant={ready && !nextMeeting ? 'primary' : 'secondary'} size={ready && !nextMeeting ? 'lg' : 'md'} onClick={() => setScheduleOpen(true)} data-testid="schedule-open">
+                <CalendarClock aria-hidden="true" className="size-5" /> {nextMeeting ? '일정 변경' : ready ? '2차 미팅 일정 잡기' : '다음 미팅 일정 잡기'}
+              </Button>
+            )}
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
           {canWithdraw && (
             <Button size="sm" variant="danger" onClick={() => setWithdrawOpen(true)} data-testid="withdraw-handoff">
@@ -142,6 +177,10 @@ export default function HandoffPage() {
           )}
         </dl>
       </section>
+
+      {company && (
+        <ScheduleSheet company={company} open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={setCompany} title={ready ? '2차 미팅 일정' : '다음 미팅 일정'} allowClear={Boolean(nextMeeting)} />
+      )}
 
       <DangerModal
         open={withdrawOpen}

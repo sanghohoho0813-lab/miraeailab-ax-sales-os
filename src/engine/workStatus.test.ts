@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { byUrgency, filterOf, latestMeetings, matchCompany, sortItems, todoItems, workItem, workItems } from './workStatus'
+import { asViewer, byUrgency, filterOf, isStuck, latestMeetings, matchCompany, ownerOf, pendingRequests, sortItems, todoItems, workItem, workItems } from './workStatus'
 import type { Company, Handoff, Meeting } from '../types/domain'
 
 const NOW = new Date(2026, 9, 6, 10, 0) // 2026-10-06 10:00
@@ -53,6 +53,8 @@ describe('업무 상태 — 고객마다 다음 행동 하나', () => {
     const w = workItem(company(), meeting({ status: 'submitted' }), handoff({ status: 'proposal_ready' }), NOW)
     expect(w.stage).toBe('proposal_ready')
     expect(w.todo).toBe(true)
+    // 다음 행동은 "제안 확인" 이 아니라 2차 미팅 일정 — 고객 화면에서 일정 시트가 바로 열린다
+    expect(w.next).toEqual({ to: '/companies/c1?schedule=1', label: '2차 미팅 일정 잡기' })
   })
 
   it('전달 뒤에 새 미팅 일정이 잡히면 그 일정이 다음 할 일이다', () => {
@@ -155,5 +157,51 @@ describe('고객 정렬', () => {
     expect(filterOf(c)).toBe('todo')
     expect(filterOf(a)).toBe('planned')
     expect(filterOf(workItem(company(), meeting({ status: 'submitted' }), handoff(), NOW))).toBe('sent')
+  })
+})
+
+describe('마스터 홈 — 누구의 일인가', () => {
+  it('담당자는 재배정된 사람, 없으면 등록한 사람', () => {
+    expect(ownerOf(company())).toBe('u1')
+    expect(ownerOf(company({ assignedTo: 'u2' }))).toBe('u2')
+    expect(ownerOf(company({ assignedTo: null }))).toBe('u1')
+  })
+
+  it('파트너의 방금 시작한 미팅·방금 끝난 분석은 멈춘 것이 아니다 — 하루가 넘어야 마스터에게 올라온다', () => {
+    const fresh = workItem(company(), meeting({ status: 'live', updatedAt: iso(2026, 10, 6, 9) }), null, NOW)
+    const stale = workItem(company(), meeting({ status: 'live', updatedAt: iso(2026, 10, 4, 9) }), null, NOW)
+    const analyzedFresh = workItem(company(), meeting({ status: 'analyzed', endedAt: iso(2026, 10, 6, 8) }), null, NOW)
+    const analyzedStale = workItem(company(), meeting({ status: 'analyzed', endedAt: iso(2026, 10, 3, 8) }), null, NOW)
+    expect(isStuck(fresh, NOW)).toBe(false)
+    expect(isStuck(stale, NOW)).toBe(true)
+    expect(isStuck(analyzedFresh, NOW)).toBe(false)
+    expect(isStuck(analyzedStale, NOW)).toBe(true)
+  })
+
+  it('지난 미팅은 바로 멈춘 것, 오늘·예정·전달 완료는 아니다', () => {
+    expect(isStuck(workItem(company({ meetingAt: iso(2026, 10, 2, 14) }), null, null, NOW), NOW)).toBe(true)
+    expect(isStuck(workItem(company({ meetingAt: iso(2026, 10, 6, 15) }), null, null, NOW), NOW)).toBe(false)
+    expect(isStuck(workItem(company({ meetingAt: iso(2026, 10, 9, 15) }), null, null, NOW), NOW)).toBe(false)
+    expect(isStuck(workItem(company(), meeting({ status: 'submitted' }), handoff({ status: 'reviewing' }), NOW), NOW)).toBe(false)
+  })
+
+  it('확인할 요청 — 전달됨·확인 중만, 오래된 것부터. 철회·보관·작성 중·준비완료는 뺀다', () => {
+    const list = pendingRequests([
+      handoff({ id: 'new2', status: 'submitted', submittedAt: iso(2026, 10, 5) }),
+      handoff({ id: 'new1', status: 'submitted', submittedAt: iso(2026, 10, 3) }),
+      handoff({ id: 'recv', status: 'received', submittedAt: iso(2026, 10, 4) }),
+      handoff({ id: 'rev', status: 'reviewing' }),
+      handoff({ id: 'ready', status: 'proposal_ready' }),
+      handoff({ id: 'wd', status: 'withdrawn' }),
+      handoff({ id: 'arc', status: 'submitted', archivedAt: iso(2026, 10, 5) }),
+    ])
+    expect(list.map((h) => h.id)).toEqual(['new1', 'recv', 'new2'])
+  })
+
+  it('남의 고객이면 다음 행동은 [고객 보기] — 파트너의 미팅을 목록에서 이어 쓰지 않는다', () => {
+    const x = workItem(company({ consultantId: 'u2' }), meeting({ status: 'live' }), null, NOW)
+    expect(asViewer(x, 'u2').next.label).toBe('이어서 진행')
+    expect(asViewer(x, 'master').next).toEqual({ to: '/companies/c1', label: '고객 보기' })
+    expect(asViewer(x, 'master').stage).toBe('live')
   })
 })

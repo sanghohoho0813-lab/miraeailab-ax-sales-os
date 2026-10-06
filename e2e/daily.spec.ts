@@ -111,8 +111,137 @@ test.describe('하루 업무 흐름', () => {
     await expect(page.getByTestId('overdue-note')).toContainText('3일 전 미팅')
     // 미팅을 했다면 바로 기록할 수 있다 — 주 버튼은 그대로 미팅 시작
     await expect(page.getByTestId('start-meeting')).toBeVisible()
-    await page.getByTestId('overdue-note').getByRole('link', { name: '일정 변경' }).click()
-    await expect(page).toHaveURL(/\/edit$/)
+
+    // 일정은 정보 수정 폼이 아니라 그 자리에서 — 내일로 다시 잡으면 할 일에서 빠지고 예정으로
+    await page.getByTestId('overdue-note').getByTestId('schedule-open').click()
+    await expect(page.getByTestId('schedule-sheet')).toContainText('지난 일정')
+    await page.getByTestId('time-tomorrow').click()
+    await page.getByTestId('schedule-save').click()
+    await expect(page.getByTestId('schedule-sheet')).toHaveCount(0)
+    await expect(page.getByTestId('toast')).toContainText('미팅으로 잡았습니다')
+    await expect(page.getByTestId('primary-action')).toHaveAttribute('data-stage', 'upcoming')
+    await expect(page.getByTestId('overdue-note')).toHaveCount(0)
+    expect(new URL(page.url()).pathname).toBe(companyPath)
+
+    // 무산·보류된 건은 일정 미정으로 — 지난 미팅이 할 일 큐를 계속 막지 않는다
+    await page.getByTestId('schedule-open').click()
+    await page.getByTestId('schedule-clear').click()
+    await expect(page.getByTestId('primary-action')).toHaveAttribute('data-stage', 'prep')
+    await page.goto('/')
+    await expect(page.getByTestId('todo-empty')).toBeVisible()
+  })
+
+  test('2차 제안 준비완료 → 홈에서 한 번에 2차 미팅 일정 → 다가오는 미팅, 전화는 눌러서 바로', async ({ page }, testInfo) => {
+    const tag = testInfo.project.name
+    await loginPartner(page)
+    await prepareCompany(page, '후속상사', { rep: '한지수', phone: '010-5555-1234' })
+    const companyPath = new URL(page.url()).pathname
+    // 미팅 전 확인 전화 — 폰에서 눌러서 바로 건다
+    await expect(page.getByTestId('core-rep')).toContainText('한지수 대표')
+    await expect(page.getByTestId('core-phone')).toHaveAttribute('href', 'tel:01055551234')
+
+    await page.getByTestId('start-meeting').click()
+    await answerAll(page)
+    await page.getByTestId('key-quote').fill('확인 전화가 하루에도 여러 번 옵니다.')
+    await page.getByTestId('end-meeting').click()
+    await page.getByTestId('submit-handoff').click()
+    await expect(page.getByTestId('handoff-success')).toBeVisible()
+    // 운영 OS 에서 김상호 대표가 2차 제안을 준비했다
+    await page.evaluate(() => {
+      const list = JSON.parse(localStorage.getItem('axpartner.handoffs') ?? '[]') as { status: string }[]
+      for (const h of list) h.status = 'proposal_ready'
+      localStorage.setItem('axpartner.handoffs', JSON.stringify(list))
+    })
+
+    // 홈 — 다시 할 일이 된다. 버튼 하나로 고객 화면 + 일정 시트가 바로 열린다
+    await page.goto('/')
+    const row = page.getByTestId('todo-row').first()
+    await expect(row).toHaveAttribute('data-stage', 'proposal_ready')
+    await expect(row.getByTestId('todo-action')).toContainText('2차 미팅 일정 잡기')
+    await page.screenshot({ path: `${SHOTS}/${tag}-05-home-proposal-ready.png`, fullPage: true })
+    await row.click()
+    await expect(page.getByTestId('schedule-sheet')).toBeVisible()
+    expect(new URL(page.url()).pathname).toBe(companyPath)
+    expect(new URL(page.url()).search).toBe('')
+    await page.screenshot({ path: `${SHOTS}/${tag}-06-schedule-sheet.png`, fullPage: true })
+    await page.getByTestId('time-tomorrow').click()
+    await page.getByTestId('schedule-save').click()
+    await expect(page.getByTestId('schedule-sheet')).toHaveCount(0)
+
+    // 2차 미팅이 잡히면 주 버튼은 다시 미팅 시작, 할 일에서 빠지고 다가오는 미팅으로
+    await expect(page.getByTestId('primary-action')).toHaveAttribute('data-stage', 'upcoming')
+    await expect(page.getByTestId('start-meeting')).toContainText('미팅 시작')
+    await expect(page.getByTestId('strategy-title')).toContainText('내일')
+    // 새로고침해도 시트가 다시 열리지 않는다
+    await page.reload()
+    await expect(page.getByTestId('strategy-title')).toBeVisible()
+    await expect(page.getByTestId('schedule-sheet')).toHaveCount(0)
+
+    await page.goto('/')
+    await expect(page.getByTestId('todo-empty')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '다가오는 미팅' })).toBeVisible()
+    await expect(page.getByRole('link', { name: /후속상사/ })).toContainText('내일')
+
+    // 요청 화면에서도 2차 미팅 일시가 보인다
+    const handoffId = await page.evaluate(() => (JSON.parse(localStorage.getItem('axpartner.handoffs') ?? '[]') as { id: string }[])[0].id)
+    await page.goto(`/handoffs/${handoffId}`)
+    await expect(page.getByTestId('handoff-next-meeting')).toContainText('2차 미팅')
+    await expect(page.getByTestId('handoff-next-meeting')).toContainText('내일')
+  })
+
+  test('마스터 홈 — 파트너의 진행 중 미팅은 내 할 일이 아니다. 확인할 요청과 멈춘 파트너 고객을 따로 본다', async ({ page }, testInfo) => {
+    const tag = testInfo.project.name
+    await loginPartner(page)
+    // 파트너: 미팅을 시작만 하고 멈춘 고객 + 2차 제안 요청까지 보낸 고객
+    await prepareCompany(page, '멈춘상사')
+    await page.getByTestId('start-meeting').click()
+    await page.getByRole('radio').first().click()
+    await expect(page.getByTestId('save-status')).toHaveAttribute('data-status', 'saved')
+    await page.goto('/')
+    await prepareCompany(page, '요청상사')
+    await page.getByTestId('start-meeting').click()
+    await answerAll(page)
+    await page.getByTestId('key-quote').fill('확인 전화가 하루에도 여러 번 옵니다.')
+    await page.getByTestId('end-meeting').click()
+    await page.getByTestId('submit-handoff').click()
+    await expect(page.getByTestId('handoff-success')).toBeVisible()
+    // 멈춘 지 이틀
+    await page.evaluate((at) => {
+      const list = JSON.parse(localStorage.getItem('axpartner.meetings') ?? '[]') as { status: string; updatedAt: string }[]
+      for (const m of list) if (m.status === 'live' || m.status === 'draft') m.updatedAt = at
+      localStorage.setItem('axpartner.meetings', JSON.stringify(list))
+    }, daysFromNow(-2))
+
+    await page.goto('/settings')
+    await page.getByRole('button', { name: '마스터로 전환' }).click()
+    await page.goto('/')
+
+    // 할 일 = 확인할 요청. 파트너의 진행 중 미팅은 [이어서 진행] 으로 올라오지 않는다
+    const todo = page.getByTestId('todo-row')
+    await expect(todo).toHaveCount(1)
+    await expect(todo.first()).toHaveAttribute('data-stage', 'request')
+    await expect(todo.first()).toContainText('요청상사')
+    await expect(todo.first()).toContainText('곽주환 팀장')
+    await expect(page.getByTestId('home-summary')).toContainText('확인할 요청 1건')
+
+    // 파트너 고객 중 하루 넘게 멈춘 건 — 담당 파트너와 함께
+    const stuck = page.getByTestId('stuck-row')
+    await expect(stuck).toHaveCount(1)
+    await expect(stuck.first()).toHaveAttribute('data-stage', 'live')
+    await expect(stuck.first()).toContainText('멈춘상사')
+    await expect(stuck.first()).toContainText('곽주환 팀장')
+    await page.screenshot({ path: `${SHOTS}/${tag}-07-master-home.png`, fullPage: true })
+
+    await todo.first().click()
+    await expect(page).toHaveURL(/\/handoffs\//)
+
+    // 고객 목록 — 담당이 붙고, 남의 미팅은 [이어서 진행] 이 아니라 [고객 보기]
+    await page.goto('/companies')
+    const row = page.getByTestId('company-row').filter({ hasText: '멈춘상사' })
+    await expect(row).toContainText('담당 곽주환')
+    await expect(row.getByTestId('company-next')).toHaveText(/고객 보기/)
+    await row.getByTestId('company-next').click()
+    await expect(page.getByTestId('strategy-title')).toContainText('멈춘상사')
   })
 
   test('고객 찾기 — 대표자 이름 · 전화번호 뒷자리 · 상태 필터 · 정렬, 다녀와도 보던 목록 그대로', async ({ page }, testInfo) => {

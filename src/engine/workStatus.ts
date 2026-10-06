@@ -100,7 +100,8 @@ export function workItem(company: Company, meeting: Meeting | null, handoff: Han
   } else if (meeting && meeting.status === 'submitted' && handoff?.status === 'proposal_ready' && !scheduledAfter) {
     stage = 'proposal_ready'
     reason = '2차 제안이 준비됐습니다 — 2차 미팅 일정을 잡으세요'
-    next = { to: `/handoffs/${handoff.id}`, label: '제안 확인' }
+    // 제안 내용은 김상호 대표가 직접 전한다 — 파트너가 할 일은 2차 미팅 일정이다. 고객 화면에서 일정 시트가 바로 열린다
+    next = { to: `${strategy}?schedule=1`, label: '2차 미팅 일정 잡기' }
     at = handoff.updatedAt
   } else if (meeting && meeting.status === 'submitted' && !scheduledAfter) {
     stage = 'submitted'
@@ -211,4 +212,42 @@ export function sortItems(list: WorkItem[], sort: CompanySort): WorkItem[] {
       return lastActivity(b).localeCompare(lastActivity(a))
     })
   return out.sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)))
+}
+
+/* ------------------------------------------------------------------ */
+/* 누구의 일인가 — 마스터 홈                                             */
+/* ------------------------------------------------------------------ */
+
+/** 고객의 담당자 — 재배정됐으면 새 담당, 아니면 처음 등록한 사람 */
+export function ownerOf(c: Company): string {
+  return c.assignedTo || c.consultantId
+}
+
+const DAY = 86_400_000
+
+/**
+ * 파트너 고객 중 마스터가 챙길 건 — 하루 넘게 멈춘 것만.
+ * 방금 시작한 미팅 · 방금 끝난 분석은 파트너가 처리하는 중이다. 마스터 화면에 올리면 소음이 된다.
+ * 지난 미팅은 그 자체로 멈춘 것이다.
+ */
+export function isStuck(x: WorkItem, now = new Date()): boolean {
+  if (x.stage === 'overdue') return true
+  if (x.stage !== 'live' && x.stage !== 'analyzed' && x.stage !== 'proposal_ready') return false
+  return Boolean(x.at) && now.getTime() - new Date(x.at as string).getTime() > DAY
+}
+
+/** 마스터가 확인할 새 2차 제안 요청 — 전달됨 · 확인 중. 철회 · 보관 · 이미 작성 중인 것은 뺀다. 오래된 것부터 */
+export function pendingRequests(handoffs: Handoff[]): Handoff[] {
+  return handoffs
+    .filter((h) => !h.archivedAt && (h.status === 'submitted' || h.status === 'received'))
+    .sort((a, b) => (a.submittedAt ?? a.createdAt).localeCompare(b.submittedAt ?? b.createdAt))
+}
+
+/**
+ * 보는 사람 기준의 다음 행동 — 남(파트너)의 고객이면 [이어서 진행]·[2차 제안 요청] 대신 [고객 보기].
+ * 마스터가 목록에서 버튼 하나로 파트너의 미팅을 이어 쓰거나 대신 전달하지 않게 한다.
+ */
+export function asViewer(x: WorkItem, viewerId: string): WorkItem {
+  if (ownerOf(x.company) === viewerId) return x
+  return { ...x, next: { to: `/companies/${x.company.id}`, label: '고객 보기' } }
 }

@@ -7,16 +7,22 @@
  * 질문 목록·멘트·가설·주의표현·기업자료·미팅기록은 전부 접어 둔다. 미팅 전에 읽어야 할 글은 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, ArrowRight, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Play, Pencil, ArrowLeft, ArrowRight, CalendarClock, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
 import { useSession } from '../lib/auth'
 import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
+import { ScheduleSheet } from '../components/ScheduleSheet'
 import { PICK_LIMIT } from '../engine/caseMatcher'
 import { documentStatus, missingRequired } from '../engine/documents'
 import { latestMeetings, workItem } from '../engine/workStatus'
+
+/** 주 동작 링크·버튼 — 같은 크기, 색만 다르게 */
+const CTA = 'btn inline-flex h-14 w-full items-center justify-center gap-2 rounded-(--radius-control) border px-6 text-[1.1rem] font-semibold sm:w-auto sm:min-w-[240px]'
+const CTA_PRIMARY = 'border-accent-600 bg-accent-600 text-white hover:bg-accent-700'
+const CTA_OUTLINE = 'border-line-strong bg-white text-ink-900 hover:bg-paper-2'
 
 /** 준비 화면에 기본으로 펼치는 사례 수 */
 const CASE_PREVIEW = 3
@@ -54,6 +60,9 @@ export default function CompanyPage() {
   const [hash, setHash] = useState('')
   const [enhanced, setEnhanced] = useState<(EnhancedText & { hash: string }) | null>(null)
   const [enhancing, setEnhancing] = useState(false)
+  /** 일정 시트 — 홈의 "2차 미팅 일정 잡기" 는 ?schedule=1 로 와서 바로 연다 */
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [params, setParams] = useSearchParams()
 
   useEffect(() => {
     if (!companyId) return
@@ -74,6 +83,17 @@ export default function CompanyPage() {
       alive = false
     }
   }, [companyId, repo, user])
+
+  // 홈의 "2차 미팅 일정 잡기" — 고객 화면이 그려지면 시트를 바로 연다. 주소에서는 지워 새로고침해도 다시 열리지 않게
+  useEffect(() => {
+    if (!company || params.get('schedule') !== '1') return
+    setScheduleOpen(true)
+    setParams((cur) => {
+      const n = new URLSearchParams(cur)
+      n.delete('schedule')
+      return n
+    }, { replace: true })
+  }, [company, params, setParams])
 
   const profile = useMemo(() => latestProfile(profiles), [profiles])
   const strategy: Strategy | null = useMemo(() => (company && cases.length ? buildStrategy({ company, profile, cases }) : null), [company, profile, cases])
@@ -289,16 +309,24 @@ export default function CompanyPage() {
         {work.stage === 'overdue' && (
           <p className="t-sub mb-3 flex flex-wrap items-center gap-x-2 rounded-(--radius-control) bg-warn-50 px-4 py-2.5 font-semibold text-warn-700" data-testid="overdue-note">
             <span>{work.reason}</span>
-            <Link to={`/companies/${company.id}/edit`} className="underline">
+            <button type="button" onClick={() => setScheduleOpen(true)} className="font-bold underline underline-offset-4" data-testid="schedule-open">
               일정 변경
-            </Link>
+            </button>
           </p>
         )}
         {meetingIsPrimary ? (
           <>
-            <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
-              <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : work.stage === 'overdue' ? '미팅 기록 시작' : '미팅 시작'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
+                <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : work.stage === 'overdue' ? '미팅 기록 시작' : '미팅 시작'}
+              </Button>
+              {/* 일정은 정보 수정(3단계 폼)이 아니라 여기서 바로 — 진행 중인 미팅에는 필요 없다 */}
+              {(work.stage === 'today' || work.stage === 'upcoming' || work.stage === 'prep') && (
+                <Button onClick={() => setScheduleOpen(true)} data-testid="schedule-open">
+                  <CalendarClock aria-hidden="true" className="size-4" /> {company.meetingAt ? '일정 변경' : '일정 잡기'}
+                </Button>
+              )}
+            </div>
             <p className="t-sub mt-2 text-ink-500" data-testid="question-count">
               오늘 질문 {strategy.questions.length}개 준비됨
               {strategy.prefilled.length > 0 && ` · 사전진단으로 ${strategy.prefilled.length}개는 건너뜁니다`}
@@ -310,20 +338,42 @@ export default function CompanyPage() {
               <Badge tone={work.tone}>{work.label}</Badge> <span className="ml-1">{work.reason}</span>
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <Link
-                to={work.next.to}
-                className="btn inline-flex h-14 w-full items-center justify-center gap-2 rounded-(--radius-control) border border-accent-600 bg-accent-600 px-6 text-[1.1rem] font-semibold text-white hover:bg-accent-700 sm:w-auto sm:min-w-[260px]"
-                data-testid="next-action"
-              >
-                {work.stage === 'analyzed' ? '분석 보고 2차 제안 요청' : work.next.label} <ArrowRight aria-hidden="true" className="size-5" />
-              </Link>
-              <Button onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
+              {work.stage === 'analyzed' && (
+                <Link to={work.next.to} className={`${CTA} ${CTA_PRIMARY}`} data-testid="next-action">
+                  분석 보고 2차 제안 요청 <ArrowRight aria-hidden="true" className="size-5" />
+                </Link>
+              )}
+              {/* 제안이 준비됐으면 할 일은 2차 미팅 일정 — 제안 내용은 김상호 대표가 직접 전한다 */}
+              {work.stage === 'proposal_ready' && (
+                <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${CTA_PRIMARY}`} data-testid="schedule-open">
+                  <CalendarClock aria-hidden="true" className="size-5" /> 2차 미팅 일정 잡기
+                </button>
+              )}
+              {work.stage === 'submitted' && (
+                <button type="button" onClick={() => setScheduleOpen(true)} className={`${CTA} ${CTA_OUTLINE}`} data-testid="schedule-open">
+                  <CalendarClock aria-hidden="true" className="size-5" /> 다음 미팅 일정 잡기
+                </button>
+              )}
+              {work.handoff && work.stage !== 'analyzed' && (
+                <Link to={`/handoffs/${work.handoff.id}`} className={`${CTA} ${CTA_OUTLINE}`} data-testid="next-action">
+                  요청 상태 <ArrowRight aria-hidden="true" className="size-5" />
+                </Link>
+              )}
+              <Button variant="ghost" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
                 <Play aria-hidden="true" className="size-4" /> {liveMeeting ? '미팅 이어가기' : '새 미팅 시작'}
               </Button>
             </div>
           </>
         )}
       </section>
+      <ScheduleSheet
+        company={company}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSaved={setCompany}
+        title={work.stage === 'proposal_ready' ? '2차 미팅 일정' : '미팅 일정'}
+        allowClear={work.stage === 'overdue' || work.stage === 'today' || work.stage === 'upcoming'}
+      />
 
       {/* 4) 오늘 참고할 실제 사례 — 기본 3개, [+N개 더 보기] 로 최대 5개. 동종업계 안에서만, 10억 이내 조달을 먼저 */}
       <section className="reveal">
