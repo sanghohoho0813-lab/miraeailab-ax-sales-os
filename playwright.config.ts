@@ -36,12 +36,15 @@ export default defineConfig({
     // 기업분석 도구 — 데스크톱과 폰 양쪽에서 (개인정보 경계 검증 포함)
     { name: 'tools', testMatch: /tools\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     { name: 'tools-mobile', testMatch: /tools\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    // 하루 업무 흐름(할 일 큐 · 이어서 진행 · 2차 제안 요청 · 지난 미팅 · 고객 찾기) — 데스크톱과 폰 양쪽에서
+    { name: 'daily', testMatch: /daily\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'daily-mobile', testMatch: /daily\.spec\.ts/, use: { ...devices['Pixel 7'] } },
     { name: 'copy', testMatch: /copy\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     { name: 'scroll', testMatch: /scroll\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
     { name: 'scroll-mobile', testMatch: /scroll\.spec\.ts/, use: { ...devices['Pixel 7'] } },
     // 모바일·태블릿은 Chromium 기반 기기 설명자를 쓴다 (WebKit 은 이 환경에 없다)
-    { name: 'mobile', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools)\.spec\.ts/, use: { ...devices['Pixel 7'] } },
-    { name: 'tablet', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools)\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
-    { name: 'desktop', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
+    { name: 'mobile', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools|daily)\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'tablet', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools|daily)\.spec\.ts/, use: { ...devices['Galaxy Tab S4'] } },
+    { name: 'desktop', testIgnore: /(screens|hardening|intake|scroll|copy|shots|tools|daily)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 900 } } },
   ],
 })

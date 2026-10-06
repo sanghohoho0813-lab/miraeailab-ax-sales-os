@@ -5,7 +5,7 @@ export const SHOTS = 'e2e/screenshots'
 mkdirSync(SHOTS, { recursive: true })
 
 /** 미팅 준비 시작 → 가져오기 방법(30초 빠른 등록) → 3단계 → 전략 화면. 회사명 + 연락처가 사전진단 픽스처(ABC산업)와 일치한다. */
-export async function prepareCompany(page: Page, name = 'ABC산업', opts: { phone?: string; withDate?: boolean; shots?: string } = {}) {
+export async function prepareCompany(page: Page, name = 'ABC산업', opts: { phone?: string; rep?: string; withDate?: boolean; shots?: string } = {}) {
   await page.getByTestId('cta-new-company').click()
   await expect(page.getByTestId('intake-pdf')).toBeVisible()
   if (opts.shots) await page.screenshot({ path: `${SHOTS}/${opts.shots}-02-intake.png`, fullPage: true })
@@ -13,6 +13,7 @@ export async function prepareCompany(page: Page, name = 'ABC산업', opts: { pho
   await expect(page.getByTestId('prep-progress')).toHaveText(/1 \/ 3/)
   await page.getByTestId('company-name').fill(name)
   if (opts.phone) await page.getByTestId('company-phone').fill(opts.phone)
+  if (opts.rep) await page.getByTestId('company-rep').fill(opts.rep)
   if (opts.shots) await page.screenshot({ path: `${SHOTS}/${opts.shots}-02a-prep-1.png`, fullPage: true })
   await page.getByTestId('prep-next').click()
   await expect(page.getByTestId('prep-progress')).toHaveText(/2 \/ 3/)

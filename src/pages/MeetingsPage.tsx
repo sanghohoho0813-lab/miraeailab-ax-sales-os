@@ -1,68 +1,71 @@
 /**
- * 미팅 — 오늘·예정·진행중·전달 완료를 한 목록으로. 카드 대신 compact list.
+ * 미팅 — 진행 흐름으로 본다. 고객 화면이 "찾기" 라면 여기는 "어디까지 왔나" 다.
+ *
+ * 묶음은 업무 상태 엔진(workStatus)이 정한다 — 홈의 "지금 할 일" 과 같은 판단이다.
+ *   지금 할 일 → 다가오는 미팅 → 일정 미정 → 전달 완료
+ * 예전에는 일정이 지났는데 기록이 없는 미팅이 "날짜 미정" 으로 들어갔다. 이제 "지난 미팅" 으로 할 일에 올라온다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Company, Meeting } from '../types/domain'
-import { HANDOFF_STATUS_LABEL, INDUSTRY_LABEL, HEADCOUNT_LABEL } from '../content/labels'
+import type { Company, Handoff, Meeting } from '../types/domain'
+import { HEADCOUNT_LABEL, INDUSTRY_LABEL } from '../content/labels'
+import { displayIndustry } from '../content/industryText'
 import { formatDate, relativeDay } from '../lib/util'
 import { Badge, Button, DangerModal, EmptyState, FlatSection, PageTitle, SkeletonList, useToast } from '../components/ui'
+import { byUrgency, workItems, type WorkItem } from '../engine/workStatus'
 
-type Row = { company: Company; meeting: Meeting | null }
-type Bucket = 'today' | 'upcoming' | 'active' | 'done' | 'undated'
-
-function bucketOf(r: Row): Bucket {
-  const m = r.meeting
-  if (m?.status === 'submitted') return 'done'
-  if (m && (m.status === 'live' || m.status === 'analyzed')) return 'active'
-  const at = r.company.meetingAt ? new Date(r.company.meetingAt) : null
-  if (!at) return 'undated'
-  const now = new Date()
-  const same = at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate()
-  if (same) return 'today'
-  return at.getTime() > now.getTime() ? 'upcoming' : 'undated'
-}
-
-const BUCKET_LABEL: Record<Bucket, { title: string; sub: string }> = {
-  today: { title: '오늘 미팅', sub: '준비 화면에서 전략을 확인하고 시작합니다' },
-  upcoming: { title: '예정된 미팅', sub: '날짜순' },
-  active: { title: '진행 중 · 분석 완료', sub: '마무리하거나 2차 제안 요청을 보냅니다' },
-  undated: { title: '날짜 미정', sub: '미팅 일시를 넣으면 오늘·예정으로 올라옵니다' },
-  done: { title: '전달 완료', sub: '김상호 대표의 운영 OS에 전달된 건' },
-}
-
-function statusOf(r: Row): { label: string; tone: 'neutral' | 'accent' | 'ok' | 'info' | 'warn' } {
-  const m = r.meeting
-  if (!m) return { label: '준비', tone: 'neutral' }
-  if (m.status === 'cancelled') return { label: '취소됨', tone: 'warn' }
-  if (m.status === 'live') return { label: '진행 중', tone: 'accent' }
-  if (m.status === 'analyzed') return { label: '분석 완료', tone: 'info' }
-  if (m.status === 'submitted') return { label: HANDOFF_STATUS_LABEL.submitted ?? '전달 완료', tone: 'ok' }
-  return { label: '초안', tone: 'neutral' }
-}
-
-function actionOf(r: Row): { to: string; label: string; primary: boolean } {
-  const m = r.meeting
-  if (m?.status === 'live') return { to: `/meetings/${m.id}/live`, label: '이어서 진행', primary: true }
-  if (m?.status === 'analyzed') return { to: `/meetings/${m.id}/result`, label: '분석 · 2차 제안 요청', primary: true }
-  if (m?.status === 'submitted' && m.handoffId) return { to: `/handoffs/${m.handoffId}`, label: '요청 상태 보기', primary: false }
-  return { to: `/companies/${r.company.id}`, label: '미팅 전략 보기', primary: false }
+type Group = 'todo' | 'upcoming' | 'prep' | 'sent'
+const GROUPS: { key: Group; title: string; sub: string }[] = [
+  { key: 'todo', title: '지금 할 일', sub: '급한 것부터 — 진행 중 · 2차 제안 요청 · 지난 미팅 · 오늘' },
+  { key: 'upcoming', title: '다가오는 미팅', sub: '날짜순' },
+  { key: 'prep', title: '일정 미정', sub: '미팅 일시를 넣으면 다가오는 미팅으로 올라옵니다' },
+  { key: 'sent', title: '전달 완료', sub: '김상호 대표가 검토 중이거나 끝난 건' },
+]
+function groupOf(x: WorkItem): Group {
+  if (x.todo) return 'todo'
+  if (x.stage === 'upcoming') return 'upcoming'
+  if (x.stage === 'submitted') return 'sent'
+  return 'prep'
 }
 
 export default function MeetingsPage() {
   const { user, repo } = useSession()
   const toast = useToast()
-  const [rows, setRows] = useState<Row[] | null>(null)
-  const [del, setDel] = useState<Row | null>(null)
+  const [data, setData] = useState<{ companies: Company[]; meetings: Meeting[]; handoffs: Handoff[] } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [del, setDel] = useState<WorkItem | null>(null)
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    document.title = '미팅 · AX Partner OS'
+    let alive = true
+    Promise.all([repo.listCompanies(user), repo.listMeetings(user), repo.listHandoffs(user)])
+      .then(([companies, meetings, handoffs]) => alive && setData({ companies, meetings, handoffs }))
+      .catch(() => alive && setFailed(true))
+    return () => {
+      alive = false
+    }
+  }, [repo, user])
+
+  const groups = useMemo(() => {
+    const g: Record<Group, WorkItem[]> = { todo: [], upcoming: [], prep: [], sent: [] }
+    for (const x of data ? workItems(data.companies, data.meetings, data.handoffs) : []) g[groupOf(x)].push(x)
+    g.todo.sort(byUrgency)
+    g.upcoming.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
+    g.prep.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    g.sent.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    return g
+  }, [data])
+
   async function deleteDraft() {
-    if (!del?.meeting) return
+    const m = del?.meeting
+    if (!m) return
     setBusy(true)
     try {
-      await repo.deleteMeeting(user, del.meeting.id)
-      setRows((cur) => (cur ?? []).map((r) => (r.company.id === del.company.id ? { ...r, meeting: null } : r)))
+      await repo.deleteMeeting(user, m.id)
+      setData((cur) => (cur ? { ...cur, meetings: cur.meetings.filter((x) => x.id !== m.id) } : cur))
       toast.show('미팅 초안을 삭제했습니다.', 'ok')
       setDel(null)
     } catch (cause) {
@@ -71,40 +74,14 @@ export default function MeetingsPage() {
       setBusy(false)
     }
   }
-  useEffect(() => {
-    document.title = '미팅 · AX Partner OS'
-    let alive = true
-    void Promise.all([repo.listCompanies(user), repo.listMeetings(user)]).then(([companies, meetings]) => {
-      if (!alive) return
-      const latest = new Map<string, Meeting>()
-      for (const m of meetings) {
-        const cur = latest.get(m.companyId)
-        if (!cur || (m.updatedAt ?? '') > (cur.updatedAt ?? '')) latest.set(m.companyId, m)
-      }
-      setRows(companies.map((c) => ({ company: c, meeting: latest.get(c.id) ?? null })))
-    })
-    return () => {
-      alive = false
-    }
-  }, [repo, user])
 
-  const groups = useMemo(() => {
-    const g: Record<Bucket, Row[]> = { today: [], upcoming: [], active: [], undated: [], done: [] }
-    for (const r of rows ?? []) g[bucketOf(r)].push(r)
-    const byDate = (a: Row, b: Row) => (a.company.meetingAt ?? '').localeCompare(b.company.meetingAt ?? '')
-    g.today.sort(byDate)
-    g.upcoming.sort(byDate)
-    return g
-  }, [rows])
-
-  const order: Bucket[] = ['today', 'active', 'upcoming', 'undated', 'done']
-  const total = rows?.length ?? 0
+  const total = data?.companies.length ?? 0
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-8">
       <PageTitle
         title="미팅"
-        sub={rows ? `${total}개 고객 · 오늘 ${groups.today.length}건` : undefined}
+        sub={data ? `${total}개 고객 · 지금 할 일 ${groups.todo.length}건` : undefined}
         action={
           <Link to="/companies/new">
             <Button variant="primary" size="lg" data-testid="cta-new-company">
@@ -113,8 +90,9 @@ export default function MeetingsPage() {
           </Link>
         }
       />
-      {!rows && <SkeletonList rows={3} />}
-      {rows && total === 0 && (
+      {failed && <p className="t-body rounded-(--radius-card) bg-danger-50 px-5 py-4 font-semibold text-danger-700">미팅 목록을 불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.</p>}
+      {!data && !failed && <SkeletonList rows={3} />}
+      {data && total === 0 && (
         <EmptyState
           title="아직 준비한 미팅이 없습니다"
           body="회사 이름과 기본 구조만 넣으면 미팅 전략이 바로 만들어집니다. 3분이면 됩니다."
@@ -125,48 +103,21 @@ export default function MeetingsPage() {
           }
         />
       )}
-      {rows &&
-        order
-          .filter((b) => groups[b].length > 0)
-          .map((b) => (
-            <FlatSection key={b} title={BUCKET_LABEL[b].title} sub={BUCKET_LABEL[b].sub}>
-              <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white">
-                {groups[b].map((r) => {
-                  const st = statusOf(r)
-                  const act = actionOf(r)
-                  return (
-                    <li key={r.company.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5">
-                      <div className="min-w-0 flex-1">
-                        <Link to={`/companies/${r.company.id}`} className="block truncate text-[1.1rem] font-bold text-ink-900 hover:text-accent-700">
-                          {r.company.name}
-                        </Link>
-                        <p className="t-sub truncate text-ink-500">
-                          {INDUSTRY_LABEL[r.company.industry]} · {HEADCOUNT_LABEL[r.company.headcount]}
-                          {r.company.meetingAt && ` · ${formatDate(r.company.meetingAt, true)} (${relativeDay(r.company.meetingAt)})`}
-                        </p>
-                      </div>
-                      <Badge tone={st.tone}>{st.label}</Badge>
-                      {r.meeting && (r.meeting.status === 'draft' || r.meeting.status === 'cancelled') && (
-                        <button type="button" onClick={() => setDel(r)} className="nav-item inline-flex size-9 items-center justify-center rounded-(--radius-control) text-ink-300 hover:bg-paper-2 hover:text-danger-700" aria-label="미팅 초안 삭제" data-testid="delete-draft">
-                          <Trash2 aria-hidden="true" className="size-4" />
-                        </button>
-                      )}
-                      <Link to={act.to} className="shrink-0">
-                        <Button variant={act.primary ? 'primary' : 'secondary'} size="sm">
-                          {act.label}
-                        </Button>
-                      </Link>
-                    </li>
-                  )
-                })}
-              </ul>
-            </FlatSection>
-          ))}
+      {data &&
+        GROUPS.filter((g) => groups[g.key].length > 0).map((g) => (
+          <FlatSection key={g.key} title={g.title} sub={g.sub}>
+            <ul className="divide-y divide-line overflow-hidden rounded-(--radius-card) border border-line bg-white" data-testid={`meeting-group-${g.key}`}>
+              {groups[g.key].map((x) => (
+                <MeetingRow key={x.company.id} x={x} onDelete={() => setDel(x)} />
+              ))}
+            </ul>
+          </FlatSection>
+        ))}
       <DangerModal
         open={Boolean(del)}
         onClose={() => setDel(null)}
         title="미팅 초안을 삭제할까요?"
-        impact={del ? [`${del.company.name} · ${del.meeting ? formatDate(del.meeting.createdAt, true) : ''}`] : []}
+        impact={del?.meeting ? [`${del.company.name} · ${formatDate(del.meeting.createdAt, true)}`] : []}
         recoverable="이 작업은 되돌릴 수 없습니다. 고객 정보는 남고 미팅 기록만 지워집니다."
         confirmLabel="삭제"
         onConfirm={deleteDraft}
@@ -174,5 +125,39 @@ export default function MeetingsPage() {
         testId="delete-draft-modal"
       />
     </div>
+  )
+}
+
+function MeetingRow({ x, onDelete }: { x: WorkItem; onDelete: () => void }) {
+  const c = x.company
+  const industry = c.industryNote ? displayIndustry(c.industryNote) : c.industry === 'other' ? '업종 미확인' : INDUSTRY_LABEL[c.industry]
+  const when = x.stage === 'upcoming' || x.stage === 'today' || x.stage === 'overdue' ? (c.meetingAt ? `${formatDate(c.meetingAt, true)} (${relativeDay(c.meetingAt)})` : '') : ''
+  const draft = x.meeting?.status === 'draft'
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5" data-testid="meeting-row" data-stage={x.stage}>
+      <div className="min-w-0 flex-1 basis-[14rem]">
+        <span className="flex flex-wrap items-center gap-2">
+          <Link to={`/companies/${c.id}`} className="truncate text-[1.1rem] font-bold text-ink-900 hover:text-accent-700">
+            {c.name}
+          </Link>
+          <Badge tone={x.tone}>{x.label}</Badge>
+        </span>
+        <p className={`t-sub ${x.todo ? 'text-ink-700' : 'truncate text-ink-500'}`}>{x.todo ? x.reason : [industry, c.headcount !== 'unknown' ? HEADCOUNT_LABEL[c.headcount] : '', when].filter(Boolean).join(' · ')}</p>
+      </div>
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {draft && (
+          <button type="button" onClick={onDelete} className="nav-item inline-flex size-10 items-center justify-center rounded-(--radius-control) text-ink-300 hover:bg-paper-2 hover:text-danger-700" aria-label="미팅 초안 삭제" data-testid="delete-draft">
+            <Trash2 aria-hidden="true" className="size-4" />
+          </button>
+        )}
+        <Link
+          to={x.next.to}
+          className={`btn inline-flex h-10 items-center rounded-(--radius-control) px-3 text-[0.92rem] font-semibold ${x.todo && x.rank <= 1 ? 'border border-accent-600 bg-accent-600 text-white hover:bg-accent-700' : 'border border-line-strong bg-white text-ink-900 hover:bg-paper-2'}`}
+          data-testid="meeting-next"
+        >
+          {x.next.label}
+        </Link>
+      </span>
+    </li>
   )
 }

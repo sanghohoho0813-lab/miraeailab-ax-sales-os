@@ -8,14 +8,15 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Play, Pencil, ArrowLeft, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
+import { Play, Pencil, ArrowLeft, ArrowRight, Trash2, UserCog, XCircle, FileText, MessageSquareQuote, ListChecks, Settings2, Sparkles, RefreshCw, ChevronDown, ChevronRight, AlertTriangle, Wrench } from 'lucide-react'
 import { useSession } from '../lib/auth'
-import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Meeting, PartnerMember } from '../types/domain'
+import type { Answer, CaseStudy, Company, CompanyProfile, EvidenceField, Handoff, Meeting, PartnerMember } from '../types/domain'
 import { AccentStrip, Badge, Button, DangerModal, EvidenceBadge, Sheet, SkeletonList, useToast } from '../components/ui'
 import { CaseRow } from '../components/CaseRow'
 import { CompanyCoreSummary } from '../components/CompanyCoreSummary'
 import { PICK_LIMIT } from '../engine/caseMatcher'
 import { documentStatus, missingRequired } from '../engine/documents'
+import { latestMeetings, workItem } from '../engine/workStatus'
 
 /** 준비 화면에 기본으로 펼치는 사례 수 */
 const CASE_PREVIEW = 3
@@ -36,6 +37,8 @@ export default function CompanyPage() {
   const toast = useToast()
   const [company, setCompany] = useState<Company | null>(null)
   const [meetings, setMeetings] = useState<Meeting[]>([])
+  /** 이 고객의 2차 제안 요청 — 주 버튼을 정하는 데 필요하다(검토 중인지, 제안이 준비됐는지, 철회했는지) */
+  const [handoffs, setHandoffs] = useState<Handoff[]>([])
   const [cases, setCases] = useState<CaseStudy[]>([])
   /** 사례는 기본 3개만 펼친다 — [N개 더 보기] 로 최대 5개 */
   const [allCases, setAllCases] = useState(false)
@@ -55,11 +58,12 @@ export default function CompanyPage() {
   useEffect(() => {
     if (!companyId) return
     let alive = true
-    Promise.all([repo.getCompany(user, companyId), repo.listMeetings(user, companyId), repo.listCases(user), repo.listProfiles(user, companyId)]).then(([c, m, cs, ps]) => {
+    Promise.all([repo.getCompany(user, companyId), repo.listMeetings(user, companyId), repo.listCases(user), repo.listProfiles(user, companyId), repo.listHandoffs(user).catch(() => [] as Handoff[])]).then(([c, m, cs, ps, hs]) => {
       if (!alive) return
       if (!c) return setNotFound(true)
       setCompany(c)
       setMeetings(m)
+      setHandoffs(hs.filter((h) => h.companyId === c.id))
       setCases(cs)
       setProfiles(ps)
       setOpenProfile(ps[0] ?? null)
@@ -190,6 +194,12 @@ export default function CompanyPage() {
   if (!company || !strategy) return <SkeletonList rows={3} />
 
   const liveMeeting = meetings.find((m) => m.status === 'live' || m.status === 'draft')
+  // 이 고객의 다음 행동 — 홈·고객·미팅 화면과 같은 판단이다
+  const latest = latestMeetings(meetings).get(company.id) ?? null
+  const latestHandoff = latest ? (handoffs.filter((h) => h.meetingId === latest.id && !h.archivedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null) : null
+  const work = workItem(company, latest, latestHandoff)
+  /** 미팅을 시작·이어가는 것이 주 동작인가 — 분석 완료·전달 완료면 주 동작은 따로 있다 */
+  const meetingIsPrimary = work.stage !== 'analyzed' && work.stage !== 'submitted' && work.stage !== 'proposal_ready'
 
   async function startMeeting() {
     if (!company || !strategy || busy) return
@@ -270,15 +280,49 @@ export default function CompanyPage() {
         </p>
       </section>
 
-      {/* 3) 미팅 시작 — 사례보다 위. 준비 화면의 주 동작이다 */}
-      <section className="reveal">
-        <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
-          <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : '미팅 시작'}
-        </Button>
-        <p className="t-sub mt-2 text-ink-500" data-testid="question-count">
-          오늘 질문 {strategy.questions.length}개 준비됨
-          {strategy.prefilled.length > 0 && ` · 사전진단으로 ${strategy.prefilled.length}개는 건너뜁니다`}
-        </p>
+      {/*
+        3) 주 동작 — 사례보다 위.
+        고객의 단계에 따라 바뀐다. 분석까지 끝난 고객에서 "미팅 시작" 을 누르면 2차 제안 요청 대신 새 미팅이 생기던 함정이 있었다.
+        분석 완료 → 2차 제안 요청, 전달 완료 → 요청 상태가 주 동작이고, 새 미팅은 보조 버튼으로 남긴다(2차 미팅).
+      */}
+      <section className="reveal" data-testid="primary-action" data-stage={work.stage}>
+        {work.stage === 'overdue' && (
+          <p className="t-sub mb-3 flex flex-wrap items-center gap-x-2 rounded-(--radius-control) bg-warn-50 px-4 py-2.5 font-semibold text-warn-700" data-testid="overdue-note">
+            <span>{work.reason}</span>
+            <Link to={`/companies/${company.id}/edit`} className="underline">
+              일정 변경
+            </Link>
+          </p>
+        )}
+        {meetingIsPrimary ? (
+          <>
+            <Button variant="primary" size="lg" className="w-full sm:w-auto sm:min-w-[260px]" onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
+              <Play aria-hidden="true" className="size-5" /> {liveMeeting ? '미팅 이어가기' : work.stage === 'overdue' ? '미팅 기록 시작' : '미팅 시작'}
+            </Button>
+            <p className="t-sub mt-2 text-ink-500" data-testid="question-count">
+              오늘 질문 {strategy.questions.length}개 준비됨
+              {strategy.prefilled.length > 0 && ` · 사전진단으로 ${strategy.prefilled.length}개는 건너뜁니다`}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="t-body mb-3 font-semibold text-ink-700" data-testid="next-reason">
+              <Badge tone={work.tone}>{work.label}</Badge> <span className="ml-1">{work.reason}</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to={work.next.to}
+                className="btn inline-flex h-14 w-full items-center justify-center gap-2 rounded-(--radius-control) border border-accent-600 bg-accent-600 px-6 text-[1.1rem] font-semibold text-white hover:bg-accent-700 sm:w-auto sm:min-w-[260px]"
+                data-testid="next-action"
+              >
+                {work.stage === 'analyzed' ? '분석 보고 2차 제안 요청' : work.next.label} <ArrowRight aria-hidden="true" className="size-5" />
+              </Link>
+              <Button onClick={() => void startMeeting()} disabled={busy} data-testid="start-meeting">
+                <Play aria-hidden="true" className="size-4" /> {liveMeeting ? '미팅 이어가기' : '새 미팅 시작'}
+              </Button>
+            </div>
+          </>
+        )}
       </section>
 
       {/* 4) 오늘 참고할 실제 사례 — 기본 3개, [+N개 더 보기] 로 최대 5개. 동종업계 안에서만, 10억 이내 조달을 먼저 */}
